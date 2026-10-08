@@ -6,7 +6,7 @@
   "scripts":{
     "dev":"npx --yes wrangler@4.148.0 dev",
     "test":"node --test",
-    "check":"node --check src/index.js && node --check src/core.js && node --check src/github.js && node --check tests/core.test.js && node --check tests/github.test.js",
+    "check":"node --check src/index.js && node --check src/core.js && node --check src/github.js && node --check tests/core.test.js && node --check tests/github.test.js && node --check tests/index.test.js",
     "cloudflare:dry-run":"npx --yes wrangler@4.148.0 deploy --dry-run"
   },
   "devDependencies":{}
