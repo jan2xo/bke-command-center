@@ -16,3 +16,4 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run check
+      - run: npm run cloudflare:dry-run
