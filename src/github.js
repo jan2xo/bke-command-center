@@ -1,4 +1,5 @@
 import { boundaryFromJobName, stageFromStep, extractFailureExcerpt, normalizeStatus } from "./core.js";
+import { cloudflarePublicStatus } from "./cloudflare-status.js";
 
 const API = "https://api.github.com";
 const MAX_LOG_BYTES = 262144;
@@ -67,6 +68,7 @@ export function createGitHubAdapter(env) {
     async openPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=open&per_page=100`, env); },
     async recentClosedPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=12`, env); },
     async recentWorkflowRuns() { return github(`/repos/${owner}/${repo}/actions/runs?per_page=30`, env); },
+    async cloudflarePlatformStatus() { return cloudflarePublicStatus(); },
     async pullCommits(number) { return github(`/repos/${owner}/${repo}/pulls/${number}/commits?per_page=100`, env); },
     async checks(ref) { return github(`/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, env); },
     async workflowRuns(event = null) { return github(`/repos/${owner}/${repo}/actions/runs?per_page=100${event ? `&event=${encodeURIComponent(event)}` : ""}`, env); },
