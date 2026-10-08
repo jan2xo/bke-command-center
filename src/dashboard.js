@@ -1,4 +1,5 @@
 import { unknownFailureVisibility, normalizeFailureVisibility, renderFailureVisibility } from "./failure-visibility.js";
+import { unknownCloudflareStatus } from "./cloudflare-status.js";
 const MAX_OPEN_PAGE = 100;
 const RECENT_CLOSED_LIMIT = 12;
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -100,17 +101,24 @@ export async function dashboardState(gh) {
     gh.repo(), gh.openPullRequests(), gh.recentClosedPullRequests(),
   ]);
   const base = normalizeDashboardData(repo, open, recent);
+  // Independent provider failures must never take down the PR overview.
+  const [runs, cloudflareResult] = await Promise.allSettled([
+    typeof gh.recentWorkflowRuns === "function"
+      ? gh.recentWorkflowRuns() : Promise.reject(new Error("RUN_SOURCE_UNAVAILABLE")),
+    typeof gh.cloudflarePlatformStatus === "function"
+      ? gh.cloudflarePlatformStatus() : Promise.reject(new Error("CLOUDFLARE_SOURCE_UNAVAILABLE")),
+  ]);
   let failures = unknownFailureVisibility();
-  if (typeof gh.recentWorkflowRuns === "function") {
+  if (runs.status === "fulfilled") {
     try {
-      // GitHub Actions health is independent of the existing dashboard.
-      // Its API outage must not suppress open PRs or ownership evidence.
-      failures = normalizeFailureVisibility(await gh.recentWorkflowRuns(), repo.full_name);
+      failures = normalizeFailureVisibility(runs.value, repo.full_name);
     } catch {
       failures = unknownFailureVisibility();
     }
   }
-  return { ...base, failure_visibility: failures };
+  const platform = cloudflareResult.status === "fulfilled"
+    ? cloudflareResult.value : unknownCloudflareStatus();
+  return { ...base, failure_visibility: failures, cloudflare_platform: platform };
 }
 
 const css = `
@@ -185,7 +193,7 @@ export function renderDashboard(state) {
       countBlock(m.assigned_prs, "SINGLY ASSIGNED PRs") +
       countBlock(m.unassigned_prs, "UNASSIGNED PRs") +
       countBlock(m.ownership_conflicts, "OWNERSHIP CONFLICTS") +
-    '</div>' + renderFailureVisibility(state.failure_visibility) + '<div class="split">' +
+    '</div>' + renderFailureVisibility(state.failure_visibility, state.cloudflare_platform) + '<div class="split">' +
       '<section><h2>Open pull requests</h2>' +
       (open.length ? open.map(openItem).join("") :
         '<p class="muted">No open PRs were returned by GitHub.</p>') +
