@@ -1,9 +1,34 @@
 import { createGitHubAdapter, assignmentFromPullRequest, collectEvidence } from "./github.js";
 import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRunSummary } from "./core.js";
+import { dashboardState, renderDashboard } from "./dashboard.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
-const html = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · BKE Command Center</title><style>body{font:15px system-ui,sans-serif;margin:0;background:#f6f7f9;color:#17181a}main{max-width:1100px;margin:auto;padding:28px}nav a{margin-right:16px}section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:18px;margin:18px 0}li{margin:6px 0}.pill{display:inline-block;border:1px solid #ccc;border-radius:999px;padding:3px 9px}.muted{color:#667085}code,pre{background:#f0f1f3;padding:2px 5px;border-radius:4px}pre{padding:12px;overflow:auto}</style></head><body><main><nav><a href="/">Overview</a><a href="/worker">Worker</a></nav>${body}</main></body></html>`;
+const shellCss = [
+  "<style>",
+  "body{font:15px system-ui,-apple-system,sans-serif;margin:0;background:#0c1424;color:#eff5ff}",
+  "main{max-width:1200px;margin:auto;padding:22px 24px 48px}",
+  "nav{max-width:1200px;margin:auto;display:flex;gap:22px;padding:22px 24px;border-bottom:1px solid #293750}",
+  "nav a{font-weight:700;color:#c6d6f0;text-decoration:none}",
+  "nav a:hover,a:hover{color:#fff}",
+  "a{color:#a8c4ff}",
+  "section{background:#142033;border:1px solid #2a3b55;border-radius:16px;padding:22px;margin:18px 0;min-width:0}",
+  "li{margin:7px 0}.pill{display:inline-block;border:1px solid #50627d;border-radius:999px;padding:4px 10px}",
+  ".muted{color:#adbdd1}code,pre{background:#233249;padding:3px 5px;border-radius:4px;overflow-wrap:anywhere}",
+  "pre{padding:12px;overflow:auto}h1,h2,h3{line-height:1.25}",
+  "@media(max-width:600px){main{padding:16px 14px 30px}nav{padding:16px 14px}section{padding:16px}}",
+  "</style>",
+].join("");
+const html = (title, body) => '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' +
+  esc(title) + ' · BKE Command Center</title>' + shellCss +
+  '</head><body><nav><a href="/">BKE Command Center</a><a href="/">Overview</a>' +
+  '<a href="/worker">Worker</a></nav><main>' + body + '</main></body></html>';
+const noStoreHeaders = { "content-type": "text/html;charset=utf-8", "Cache-Control": "no-store" };
+const noStoreJson = (value, status = 200) => Response.json(value, {
+  status, headers: { "Cache-Control": "no-store" },
+});
+const page = (title, body) => new Response(html(title, body), { headers: noStoreHeaders });
 const list = (items, render) => items?.length ? `<ul>${items.map(render).join("")}</ul>` : "<p class='muted'>None.</p>";
 
 export async function workerState(env, gh = createGitHubAdapter(env)) {
@@ -76,25 +101,29 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
       const prNumber = Number(evidenceMatch[1]);
       const jobId = Number(evidenceMatch[2]);
       if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !Number.isSafeInteger(jobId) || jobId <= 0) {
-        return Response.json({ error: "invalid evidence address" }, { status: 400 });
+        return noStoreJson({ error: "invalid evidence address" }, 400);
       }
       const state = await prState(env, prNumber, gh);
-      if (!failureJobIds(state).has(jobId)) return Response.json({ error: "job is not failure evidence for this exact PR state" }, { status: 404 });
-      return Response.json(await gh.jobFailureExcerpt(jobId));
+      if (!failureJobIds(state).has(jobId)) return noStoreJson({ error: "job is not failure evidence for this exact PR state" }, 404);
+      return noStoreJson(await gh.jobFailureExcerpt(jobId));
     }
-    if (url.pathname === "/api/worker") return Response.json(await workerState(env, gh));
-    if (/^\/api\/pr\/\d+$/.test(url.pathname)) return Response.json(await prState(env, Number(url.pathname.split("/").pop()), gh));
+    if (url.pathname === "/api/overview") return noStoreJson(await dashboardState(gh));
+    if (url.pathname === "/api/worker") return noStoreJson(await workerState(env, gh));
+    if (/^\/api\/pr\/\d+$/.test(url.pathname)) return noStoreJson(await prState(env, Number(url.pathname.split("/").pop()), gh));
     if (url.pathname === "/worker") {
       const state = await workerState(env, gh);
-      return new Response(html("Worker", `<h1>worker</h1><section><p>Repository: <code>${esc(state.repository.full_name)}</code></p><p><b>Worker state:</b> ${esc(state.worker_state)}</p>${list(state.assignments, (x) => `<li>PR ${esc(x.pr_number)} · ${esc(x.worker_id || "UNKNOWN")} · ${esc(x.assignment_state)} · <a href="/pr/${esc(x.pr_number)}">open</a></li>`)}</section>`), { headers: { "content-type": "text/html;charset=utf-8" } });
+      return page("Worker", `<h1>Worker assignment</h1><section><p>Repository: <code>${esc(state.repository.full_name)}</code></p><p><b>GitHub ownership:</b> ${esc(state.worker_state)}</p><p class="muted">This is PR label ownership, not proof of a running worker process. Runtime liveness: UNKNOWN.</p>${list(state.assignments, (x) => `<li>PR ${esc(x.pr_number)} · ${esc(x.worker_id || "UNKNOWN")} · ${esc(x.assignment_state)} · <a href="/pr/${esc(x.pr_number)}">detail</a></li>`)}</section>`);
     }
     if (/^\/pr\/\d+$/.test(url.pathname)) {
       const state = await prState(env, Number(url.pathname.split("/").pop()), gh);
-      return new Response(html("PR", renderPr(state)), { headers: { "content-type": "text/html;charset=utf-8" } });
+      return page("PR", renderPr(state));
     }
-    return new Response(html("Overview", "<h1>BKE Command Center</h1><section><p>Read-first, preproduction observability for BKE engineering.</p><p><a href='/worker'>worker</a></p></section>"), { headers: { "content-type": "text/html;charset=utf-8" } });
-  } catch (error) {
-    return Response.json({ error: error.message, state: "UNKNOWN" }, { status: 502 });
+    if (url.pathname === "/") return page("Overview", renderDashboard(await dashboardState(gh)));
+    return noStoreJson({ error: "ROUTE_NOT_FOUND" }, 404);
+  } catch {
+    // Upstream error text can contain private GitHub information; do not
+    // reflect it into a public response when the protected ingress is absent.
+    return noStoreJson({ error: "GITHUB_EVIDENCE_UNAVAILABLE", state: "UNKNOWN" }, 502);
   }
 }
 
