@@ -50,4 +50,4 @@ If the hostname or policy is wrong, **disable/remove the Worker Custom Domain** 
 - [Cloudflare Access for Workers](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
 - [Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
-- [Worker Preview URLs](https://developers.cloudflare.com/workers/configuration/previews/)
+- [Worker Preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
