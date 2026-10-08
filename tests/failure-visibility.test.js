@@ -34,7 +34,7 @@ test("known GitHub Actions failure is observable, but Cloudflare remains UNKNOWN
 test("no failure in sampled window does not establish overall health", () => {
   const result = normalizeFailureVisibility({workflow_runs:[actionRun(1,{conclusion:"success"})]},REPO);
   assert.equal(result.status,"NO_FAILURES_IN_SAMPLE");
-  assert.equal(result.scope,"latest_8_workflow_runs");
+  assert.equal(result.scope,"latest_30_workflow_runs");
   assert.equal(result.cloudflare_runtime,"UNKNOWN");
   assert.match(renderFailureVisibility(result),/does not establish system-wide health/);
 });
@@ -55,7 +55,7 @@ test("other failed workflow cannot be attributed to Cloudflare service",()=>{
   assert.equal(d.failures[0].boundary,"GitHub Actions workflow");
 });
 for (const [description,payload] of [
-  ["too many runs",{workflow_runs:Array.from({length:9},(_,i)=>actionRun(i+1))}],
+  ["too many runs",{workflow_runs:Array.from({length:31},(_,i)=>actionRun(i+1))}],
   ["not an array",{workflow_runs:{}}],
   ["duplicate IDs",{workflow_runs:[actionRun(5),actionRun(5)]}],
   ["malformed IDs",{workflow_runs:[actionRun("5")]}],
@@ -106,4 +106,32 @@ test("dashboard escapes workflow names and uses constructed GitHub evidence URL"
 test("missing GitHub Actions adapter is UNKNOWN, not falsely healthy",async()=>{
   const data=await dashboardState(base());
   assert.deepEqual(data.failure_visibility,unknownFailureVisibility());
+});
+
+test("cancellations are interruptions, NOT underlying service failures",()=>{
+  const d=normalizeFailureVisibility({workflow_runs:[
+    actionRun(100,{name:"Cloudflare relay integration",conclusion:"cancelled"}),
+    actionRun(101,{conclusion:"success"}),
+  ]},REPO);
+  assert.equal(d.status,"INTERRUPTIONS_OBSERVED");
+  assert.equal(d.failed_run_count,0);
+  assert.equal(d.interrupted_run_count,1);
+  assert.equal(d.failures[0].kind,"INTERRUPTED");
+  assert.equal(d.failures[0].causal_state,"UNVERIFIED");
+  assert.match(renderFailureVisibility(d),/Inspect failing steps/);
+});
+test("action_required is blocked, not proof of outage",()=>{
+  const d=normalizeFailureVisibility({workflow_runs:[
+    actionRun(102,{conclusion:"action_required"}),
+  ]},REPO);
+  assert.equal(d.status,"BLOCKED_RUNS");
+  assert.equal(d.blocked_run_count,1);
+  assert.equal(d.failed_run_count,0);
+});
+test("sampled incident preserves latest 30 bounds and no other repos",()=>{
+  const d=normalizeFailureVisibility({workflow_runs:Array.from({length:30},(_,i)=>actionRun(i+1))},REPO);
+  assert.equal(d.fetched_run_count,30);
+  assert.equal(d.failures.length,30);
+  assert.equal(d.observations.length,30);
+  assert.equal(d.failures[0].details_path,"/failures/1");
 });
