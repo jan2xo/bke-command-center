@@ -38,6 +38,12 @@ test("no failure in sampled window does not establish overall health", () => {
   assert.equal(result.cloudflare_runtime,"UNKNOWN");
   assert.match(renderFailureVisibility(result),/does not establish system-wide health/);
 });
+test("zero workflow runs is UNKNOWN, not successful CI", () => {
+  const result = normalizeFailureVisibility({workflow_runs:[]},REPO);
+  assert.equal(result.status,"UNKNOWN");
+  assert.equal(result.fetched_run_count,0);
+  assert.equal(result.reason,"NO_WORKFLOW_RUNS_OBSERVED");
+});
 test("pending runs are separate from failures", () => {
   const result=normalizeFailureVisibility({workflow_runs:[actionRun(2,{status:"in_progress",conclusion:null})]},REPO);
   assert.equal(result.status,"PENDING_RUNS");
