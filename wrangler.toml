@@ -2,7 +2,15 @@ name = "bke-command-center"
 main = "src/index.js"
 compatibility_date = "2026-10-08"
 
-[vars]
+# The default Worker has no BKE_PREPRODUCTION marker.
+# The exported runtime handler fails closed without that marker.
+# Do not deploy the default Worker: use the explicit preproduction environment.
+
+[env.preproduction]
+# Wrangler deploy --env preproduction resolves a separate Worker named
+# bke-command-center-preproduction.
+
+[env.preproduction.vars]
 BKE_PREPRODUCTION = "true"
 GITHUB_OWNER = "jan2xo"
 GITHUB_REPO = "bke-worker"
