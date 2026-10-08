@@ -17,7 +17,7 @@ export function parseNitroComment(event) {
     throw new Error("NITRO_COMMENT_NOT_AUTHORIZED");
   }
   const match = COMMAND.exec(event?.comment?.body || "");
-  if (!match) throw new Error("NITRO_COMMENT_FORMAT_INVALID");
+  if (!match || match[0] !== event.comment.body) throw new Error("NITRO_COMMENT_FORMAT_INVALID");
   return { prNumber: event.issue.number, expectedHead: match[1] };
 }
 
