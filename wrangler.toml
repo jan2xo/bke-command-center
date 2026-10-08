@@ -16,8 +16,9 @@ preview_urls = false
 
 # PREPRODUCTION-only hostname. This is a CUSTOM DOMAIN: Cloudflare
 # creates the required DNS/TLS once it is attached during deployment.
-# Do not deploy this staged route until the operator has independently
-# verified its Cloudflare Access policy, exact host match, and deny test.
+# Do not deploy this staged route until the operator has confirmed the
+# exact Cloudflare Access application and policy. After the route exists,
+# test unauthenticated Access denial BEFORE enabling the runtime latch.
 [[env.preproduction.routes]]
 pattern = "cc.jl-bke.com"
 custom_domain = true
