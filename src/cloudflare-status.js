@@ -7,16 +7,6 @@ const STATES = new Map([
   ["major", "MAJOR_INCIDENT"], ["critical", "CRITICAL_INCIDENT"],
 ]);
 export function unknownCloudflareStatus() {
-  // Statuspage's updated_at indicates when the publisher last changed the
-  // page, not when this Worker fetched it. Old content is not current proof.
-  const age = now - Date.parse(payload.page.updated_at);
-  if (age > MAX_STATUS_AGE_MS || age < -MAX_FUTURE_SKEW_MS) {
-    return {
-      ...unknownCloudflareStatus(),
-      observed_at: payload.page.updated_at,
-      reason: age > MAX_STATUS_AGE_MS ? "PUBLIC_STATUS_STALE" : "PUBLIC_STATUS_FUTURE_TIMESTAMP",
-    };
-  }
   return {
     source:"cloudflare_public_statuspage",
     scope:"global_cloudflare_platform_not_account_or_worker",
@@ -36,6 +26,16 @@ export function normalizeCloudflareStatus(payload, now = Date.now()) {
       !Number.isFinite(Date.parse(payload.page.updated_at)) ||
       !Number.isFinite(now)) {
     throw new Error("CLOUDFLARE_PUBLIC_STATUS_INVALID");
+  }
+  // Statuspage's updated_at is a publisher change time, not retrieval time.
+  // Even an HTTP 200 cannot certify that an old outage/healthy label is current.
+  const age = now - Date.parse(payload.page.updated_at);
+  if (age > MAX_STATUS_AGE_MS || age < -MAX_FUTURE_SKEW_MS) {
+    return {
+      ...unknownCloudflareStatus(),
+      observed_at: payload.page.updated_at,
+      reason: age > MAX_STATUS_AGE_MS ? "PUBLIC_STATUS_STALE" : "PUBLIC_STATUS_FUTURE_TIMESTAMP",
+    };
   }
   return {
     source:"cloudflare_public_statuspage",
