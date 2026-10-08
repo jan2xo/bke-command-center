@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {certificationSummary,reduceFirstCausalFailure,buildFailureCapsule} from "../src/core.js";
 
 test("exact-head certification ignores other heads",()=>{
-  assert.equal(certificationSummary({exactHead:"abc",checks:[{sha:"abc",conclusion:"success"},{sha:"old",conclusion:"failure"}],workflowRuns:[{head_sha:"abc",conclusion:"success"},{head_sha:"old",conclusion:"failure"}]}).state,"PASSED");
+  assert.equal(certificationSummary({exactHead:"abc",checks:[{sha:"abc",conclusion:"success"},{sha:"old",conclusion:"failure"}],workflowRuns:[{head_sha:"abc",conclusion:"success"},{head_sha:"old",conclusion:"failure"}],requiredProof:[{source_sha:"abc",status:"success"}]}).state,"PASSED");
 });
 test("zero evidence is UNKNOWN, never PASS",()=>assert.equal(certificationSummary({exactHead:"abc"}).state,"UNKNOWN"));
 test("source_sha correlates certification proof",()=>assert.equal(certificationSummary({exactHead:"abc",proof:[{source_sha:"abc",status:"success"}]}).state,"PASSED"));
