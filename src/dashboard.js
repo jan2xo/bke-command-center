@@ -1,5 +1,3 @@
-import { assignmentFromPullRequest } from "./github.js";
-
 const MAX_OPEN_PAGE = 100;
 const RECENT_CLOSED_LIMIT = 12;
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -35,7 +33,6 @@ export function normalizeDashboardData(repository, open, recent) {
     const pr = requirePullRequest(raw, "open");
     if (seenNumbers.has(pr.number)) throw new Error("GITHUB_DASHBOARD_DUPLICATE_PR");
     seenNumbers.add(pr.number);
-    const original = assignmentFromPullRequest(pr);
     const labels = pr.labels.filter((item) => item.name.toLowerCase().startsWith("bke-worker:"));
     const names = labels.map((label) => label.name.slice("bke-worker:".length).toLowerCase());
     const idValid = names.every((name) => ID.test(name));
@@ -51,7 +48,7 @@ export function normalizeDashboardData(repository, open, recent) {
       exact_head: pr.head.sha,
       branch: typeof pr.head.ref === "string" ? pr.head.ref : null,
       worker_id: owner,
-      assignment_state: conflict ? "CONFLICT" : original.assignment_state,
+      assignment_state: conflict ? "CONFLICT" : owner ? "ASSIGNED" : "UNASSIGNED",
       conflict_reason: conflict ? "AMBIGUOUS_PR_LABELS" : null,
     };
   });
