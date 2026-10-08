@@ -1,0 +1,14 @@
+{
+  "name": "bke-command-center",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/core.js && node --check tests/core.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}
