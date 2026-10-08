@@ -6,7 +6,7 @@ test("exact-head certification ignores other heads",()=>{
   assert.equal(certificationSummary({exactHead:"abc",checks:[{sha:"abc",conclusion:"success"},{sha:"old",conclusion:"failure"}],workflowRuns:[{head_sha:"abc",conclusion:"success"},{head_sha:"old",conclusion:"failure"}],requiredProof:[{source_sha:"abc",status:"success"}]}).state,"PASSED");
 });
 test("zero evidence is UNKNOWN, never PASS",()=>assert.equal(certificationSummary({exactHead:"abc"}).state,"UNKNOWN"));
-test("source_sha correlates certification proof",()=>assert.equal(certificationSummary({exactHead:"abc",proof:[{source_sha:"abc",status:"success"}]}).state,"PASSED"));
+test("source_sha correlates certification proof",()=>assert.equal(certificationSummary({exactHead:"abc",proof:[{source_sha:"abc",status:"success"}],requiredProof:[{source_sha:"abc",status:"success"}]}).state,"PASSED"));
 test("first causal failure preserves downstream",()=>{
   const r=reduceFirstCausalFailure([{occurred_at:"2026-10-08T08:00:00Z",boundary:"cloudflare-relay",stage:"test",conclusion:"failure",summary:"protocol/reconnect test assertion",causal:true},{occurred_at:"2026-10-08T08:01:00Z",boundary:"certification",conclusion:"failure",summary:"required certification failed"}]);
   assert.equal(r.causal.boundary,"cloudflare-relay"); assert.equal(r.downstream[0].classification,"DOWNSTREAM");
