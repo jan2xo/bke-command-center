@@ -23,6 +23,16 @@ GitHub is the sole task/PR/CI authority. Every independent intent uses a fresh b
 - CI runs only once per final head **when manually fired**. If the gate fails, remediate the PR with new skip-tagged commits, review again, and intentionally recertify the changed exact head. Old CI proof is stale.
 - Never merge an uncertified head or bypass the exact-head merge-authority review.
 
+### Preferred merge-gate trigger — GitHub PR comment (no CLI)
+
+After all required PR engineering and review items are complete, the GitHub repository owner posts a comment on that Nitro PR containing **only** `/nitro-certify <current-40-character-lowercase-PR-head-SHA>`. The installed workflow lives on default `main` and is triggered on `issue_comment: created`; it requires `jan2xo` with GitHub `OWNER` association and a real PR.
+
+Preflight loads the gate code from trusted default `main`, checks the command exactly, checks the Nitro branch/base/label/body, validates every PR commit has `[skip ci]`, verifies the current exact head equals the comment SHA, then emits the source SHA. Tests run after checkout of **that exact PR source SHA**: `npm ci`, `npm test`, `npm run check`, and PREPRODUCTION `cloudflare:dry-run`. After tests it reloads the trusted gate from the default-branch event SHA and re-verifies the live PR head. A later PR head change makes the prior proof stale.
+
+Ordinary comments may cause skipped `issue_comment` workflow records, but the job-level owner and prefix guard prevents allocation of certification runners for those comments. The workflow never uses `pull_request_target`, never deploys, restricts `GITHUB_TOKEN` to read access, and disables credential persistence in all checkouts. Failure to read or verify metadata blocks testing/merge.
+
+**GitHub nuance:** An `issue_comment` workflow run uses the default-branch commit as GitHub Actions `head_sha`. That is **not** evidence for the Nitro PR source head. Certification authority comes from the successful preflight, exact checkout SHA, complete test results, and successful postflight, captured with the run ID and source SHA in the PR ledger. Required branch-protection checks may not consider this result sufficient; fail closed if so.
+
 ### Manual merge-gate invocation
 
 The `ci` GitHub Actions workflow must first exist in the default branch (installed by the NORMAL-mode contract PR). Thereafter:

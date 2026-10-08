@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npx --yes wrangler@4.148.0 dev --env preproduction",
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/core.js && node --check src/github.js && node --check tests/core.test.js && node --check tests/github.test.js && node --check tests/index.test.js && node --check tests/preproduction.test.js && node --check src/dashboard.js && node --check tests/dashboard.test.js && node --check scripts/nitro-gate.mjs && node --check tests/nitro-gate.test.js && node --check src/failure-visibility.js && node --check tests/failure-visibility.test.js && node --check src/failure-details.js && node --check tests/failure-details.test.js && node --check src/cloudflare-status.js && node --check tests/cloudflare-status.test.js",
+    "check": "node --check src/index.js && node --check src/core.js && node --check src/github.js && node --check tests/core.test.js && node --check tests/github.test.js && node --check tests/index.test.js && node --check tests/preproduction.test.js && node --check src/dashboard.js && node --check tests/dashboard.test.js && node --check scripts/nitro-gate.mjs && node --check tests/nitro-gate.test.js && node --check scripts/nitro-comment-gate.mjs && node --check tests/nitro-comment-gate.test.js && node --check src/failure-visibility.js && node --check tests/failure-visibility.test.js && node --check src/failure-details.js && node --check tests/failure-details.test.js && node --check src/cloudflare-status.js && node --check tests/cloudflare-status.test.js",
     "cloudflare:dry-run": "npx --yes wrangler@4.148.0 deploy --env preproduction --dry-run",
     "cloudflare:deploy:preproduction": "npx --yes wrangler@4.148.0 deploy --env preproduction"
   },

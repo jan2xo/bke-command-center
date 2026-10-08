@@ -4,9 +4,11 @@ A lightweight, read-first Cloudflare Worker for **PREPRODUCTION** observability.
 
 ## Engineering modes (Command Center experiment only)
 
-This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. The `workflow_dispatch` `ci` gate must be manually run on the exact Nitro PR branch with the exact PR number and SHA **only once the work is fully wired**. Never merge without certified exact-head proof. No PR Guard is added.
+This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. At the ready-for-merge gate, the owner posts an exact `/nitro-certify <head-SHA>` PR comment to trigger the required tests; the old manual `workflow_dispatch` path remains a fallback. Never merge without certified exact-head proof. No PR Guard is added.
 
 Read the [full mode contract, merge-gate instructions, branch-protection caveats, and failure procedure](docs/ENGINEERING-MODES.md). No changes to other BKE repositories, Cloudflare production, access controls, or deploys.
+
+**Nitro pre-merge CI without a CLI (preferred):** After engineering and review, ChatGPT posts an owner-authored PR comment exactly `/nitro-certify <current-exact-40-hex-head-SHA>`. The separate `nitro-certify.yml` workflow is triggered by `issue_comment`, validates owner authority and current Nitro PR/head before allocating expensive tests, tests the exact checked-out head, then revalidates it. It never deploys Cloudflare. Ordinary comments can create **skipped GitHub workflow events**, but no expensive CI jobs. `workflow_dispatch` remains an optional fallback. Details: [engineering modes](docs/ENGINEERING-MODES.md).
 
 ## Local development and certification
 
@@ -35,7 +37,7 @@ The home dashboard shows a compact **Failure visibility** section derived from t
 
 The homepage does **two independent bounded reads**: one GitHub Actions request (`actions/runs?per_page=30`) and one Cloudflare public global-status request. Neither needs a new credential. The homepage **does not fetch individual workflow jobs or raw logs**, avoiding costly fan-out. The **Inspect failing steps** link opens an on-demand, bounded `/failures/:run_id` HTML diagnosis (and `/api/failures/:run_id` JSON) for only the current sampled failures/cancellations. It retrieves that specific GitHub Actions job list once, summarizes the first **observed** failed step, any downstream required certification failures, and successful jobs; it never treats an observed failed step as definitive external root cause. A GitHub Actions run link remains the authoritative drill-down to full evidence. For incomplete, ambiguous, cancelled-without-jobs, or unavailable job evidence the answer remains explicitly UNKNOWN rather than inventing a cause. If GitHub Actions API access is unavailable or its evidence is malformed, the panel degrades to **UNKNOWN** while the existing PR overview remains accessible. All output is escaped and `/api/overview` is read-only/no-store.
 
-This is a NITRO-engineered experiment: no automatic CI during PR implementation; manually dispatch the merge gate on the exact PR head only after code review. Do not publish until the required pre-merge proof has passed. Cloudflare hosting and production remain unchanged.
+This is a NITRO-engineered experiment: no automatic CI during PR implementation; post the owner-only /nitro-certify exact-head PR command only after code review. Do not publish until the required pre-merge proof has passed. Cloudflare hosting and production remain unchanged.
 
 ## Dashboard data integrity
 

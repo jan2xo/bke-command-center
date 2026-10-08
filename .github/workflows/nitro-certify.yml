@@ -1,0 +1,69 @@
+name: Nitro Intentional Certification
+
+# Only a repository-owner exact-head PR comment allocates the CI runner.
+# Non-command issue_comment events can appear as skipped workflow runs.
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: cc-nitro-certify-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'jan2xo' &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/nitro-certify ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Load trusted default-branch gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Preflight owner intent and exact PR head
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NITRO_PHASE: preflight
+        run: node scripts/nitro-comment-gate.mjs
+      - name: Checkout the certified Nitro head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.gate.outputs.source_sha }}
+          persist-credentials: false
+      - name: Verify checked-out source SHA
+        env:
+          SOURCE_SHA: ${{ steps.gate.outputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Unit and integration tests
+        run: npm test
+      - name: Node syntax contract
+        run: npm run check
+      - name: PREPRODUCTION-only Cloudflare dry run
+        run: npm run cloudflare:dry-run
+      - name: Reload trusted default-branch gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Postflight exact-head revalidation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NITRO_PHASE: postflight
+          NITRO_CERTIFIED_HEAD: ${{ steps.gate.outputs.source_sha }}
+        run: node scripts/nitro-comment-gate.mjs
