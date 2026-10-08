@@ -14,7 +14,7 @@ test("real PR #82-shaped relay job resolves SOURCE_SHA from bounded log evidence
   const gh={
     checks:async()=>({check_runs:[{sha:source,conclusion:"success",name:"PR Guard"}]}),
     workflowRuns:async()=>{calls.runs++;return {workflow_runs:[{id:37730031840,name:"Intent Certification",event:"issue_comment",head_sha:"7fe9c19924dbf957591cc7ae8085b461c7800ec6",conclusion:"failure"}]};},
-    issueComments:async()=>({comments:[]}),
+    issueComments:async()=>[],
     workflowJobs:async()=>{calls.jobs++;return {jobs:[
       {id:113156952418,name:"Cloudflare durable relay",conclusion:"failure",steps:[{name:"Verify Cloudflare relay protocol and config",conclusion:"failure"}],html_url:"https://github.com/jan2xo/bke-worker/actions/runs/37730031840/job/113156952418"},
       {id:113157730931,name:"Required certification",conclusion:"failure",steps:[{name:"Require requested exact-head proof",conclusion:"failure"}],html_url:"https://github.com/jan2xo/bke-worker/actions/runs/37730031840/job/113157730931"},
