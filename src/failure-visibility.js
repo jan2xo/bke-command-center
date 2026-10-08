@@ -118,6 +118,7 @@ export function renderFailureVisibility(state, cloudflarePlatform = unknownCloud
       (f.status === "UNKNOWN" ? "UNKNOWN" : "OBSERVED") + '</b>. ' +
       'Cloudflare public platform: <b>' + escape(platformStatus) + '</b>' +
       (cf.description ? ' (' + escape(cf.description) + ')' : '') +
+      ' · Source updated: ' + escape(cf.observed_at || "UNKNOWN") +
       ' · <a href="https://www.cloudflarestatus.com" rel="noopener noreferrer" target="_blank">Cloudflare status source</a>. ' +
       'Cloudflare account/Worker runtime: <b>UNKNOWN</b> · Relay connection: <b>NOT MEASURED</b>. ' +
       'A GitHub integration test failure is not proof of a Cloudflare outage. ' +
