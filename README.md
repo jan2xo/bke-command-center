@@ -20,12 +20,20 @@ Wrangler is pinned to `4.148.0`. The dry-run explicitly builds the **named `prep
 ## Routes
 
 - `/` GitHub-derived engineering overview: open PRs, assignment conflicts, explicitly scoped recent merges and drill-down links (worker process liveness is **UNKNOWN**)
-- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope
+- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope; also includes an independently degradable GitHub Actions failure-visibility snapshot (latest **8** workflow runs)
 - `/worker` worker assignment/ownership-derived view (not independent process liveness)
 - `/pr/:number` human-readable PR detail
 - `/api/worker` normalized GitHub-derived worker ownership state
 - `/api/pr/:number` exact-head PR state, required-certification status, causal failure capsule, downstream effects, and post-run summary
 - `/api/pr/:number/evidence/job/:job_id` bounded failure excerpt for a job already proven to be failure evidence for that PR's current exact-head certification attempt
+
+## Failure visibility (first Nitro pilot)
+
+The home dashboard shows a compact **Failure visibility** section derived solely from the latest eight workflow runs of `jan2xo/bke-worker` GitHub Actions. The section identifies workflow names, observed run status/conclusion, observed update time, source run head SHA and a safely constructed GitHub Actions run link. A relay-named workflow failure is an **integration CI failure**, never proof that Cloudflare itself is down. **Cloudflare runtime status is UNKNOWN** without direct telemetry; absence of failure in this bounded sample is not proof of general health.
+
+The homepage does **one additional bounded GitHub API request** (`actions/runs?per_page=8`) and **does not fetch workflow jobs or raw logs**, avoiding costly fan-out. The individual GitHub Actions run linked from each failure is the authoritative drill-down for the first causal step. If GitHub Actions API access is unavailable or its evidence is malformed, the panel degrades to **UNKNOWN** while the existing PR overview remains accessible. All output is escaped and `/api/overview` is read-only/no-store.
+
+This is a NITRO-engineered experiment: no automatic CI during PR implementation; manually dispatch the merge gate on the exact PR head only after code review. Do not publish until the required pre-merge proof has passed. Cloudflare hosting and production remain unchanged.
 
 ## Dashboard data integrity
 
