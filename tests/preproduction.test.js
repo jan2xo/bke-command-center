@@ -32,6 +32,7 @@ test("Wrangler config isolates marker in a named PREPRODUCTION environment", () 
   const config = source("wrangler.toml");
   assert.match(config, /^name = "bke-command-center"$/m);
   assert.match(config, /^\[env\.preproduction\]$/m);
+  assert.match(config, /^workers_dev = false$/m);
   assert.match(config, /^\[env\.preproduction\.vars\]$/m);
   const preprodVars = config.split("[env.preproduction.vars]")[1];
   assert.match(preprodVars, /^BKE_PREPRODUCTION = "true"$/m);
