@@ -1,5 +1,11 @@
 # BKE Command Center — Canonical Repository Instructions
 
+This repository extends the canonical BKE Engineering Standard:
+
+`docs/BKE-ENGINEERING-STANDARD.md`
+
+Because this repository owns the shared standard, treat that file on current `main` as the canonical cross-project baseline. Project-specific rules below extend it.
+
 This file is the canonical operating instruction for engineering work in `jan2xo/bke-command-center`.
 
 ## 1. Authority
@@ -13,15 +19,16 @@ This file is the canonical operating instruction for engineering work in `jan2xo
 
 Before substantial engineering, architecture, debugging, CI, deployment-planning, or project-management work:
 
-1. Read this file from current `main`.
-2. Recover current `main`, open PRs, active issues, and relevant workflow state.
-3. Identify the exact authorized intent and exact head.
-4. If rationale, prior decisions, constraints, or historical context are missing, search the relevant PRs and issues before asking the operator to repeat context or inventing an answer.
-5. Prefer the newest explicit GitHub decision over stale conversation context.
+1. Read the BKE Engineering Standard from current `main`.
+2. Read this file from current `main`.
+3. Recover current `main`, open PRs, active issues, and relevant workflow state.
+4. Identify the exact authorized intent and exact head.
+5. If rationale, prior decisions, constraints, or historical context are missing, search the relevant PRs and issues before asking the operator to repeat context or inventing an answer.
+6. Prefer the newest explicit GitHub decision over stale conversation context.
 
 For project-specific context, use this order:
 
-`current repo instructions -> live PR/task -> relevant issues/PR history -> implementation/tests -> external context only when necessary`
+`central BKE standard -> current repo instructions -> live PR/task -> relevant issues/PR history -> implementation/tests -> external context only when necessary`
 
 ## 3. Purpose
 
