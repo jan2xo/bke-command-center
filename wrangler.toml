@@ -13,6 +13,14 @@ compatibility_date = "2026-10-08"
 # protected PREPRODUCTION route before live validation.
 workers_dev = false
 
+# PREPRODUCTION-only hostname. This is a CUSTOM DOMAIN: Cloudflare
+# creates the required DNS/TLS once it is attached during deployment.
+# Do not deploy this staged route until the operator has independently
+# verified its Cloudflare Access policy, exact host match, and deny test.
+[[env.preproduction.routes]]
+pattern = "cc.jl-bke.com"
+custom_domain = true
+
 [env.preproduction.vars]
 BKE_PREPRODUCTION = "true"
 GITHUB_OWNER = "jan2xo"
