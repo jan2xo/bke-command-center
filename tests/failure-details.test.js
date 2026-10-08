@@ -147,3 +147,19 @@ test("job and step names are escaped/redacted, no injected markup",()=>{
   assert.match(h,/REDACTED_GITHUB_TOKEN/);
   assert.doesNotMatch(h,/FAKESECRET/);
 });
+
+
+test("new diagnostics never bypass the PREPRODUCTION and private-host release latches",async()=>{
+  const deployed=(await import("../src/index.js")).default;
+  const missing=await deployed.fetch(new Request("https://cc.jl-bke.com/api/failures/100"),{});
+  assert.equal(missing.status,503);
+  assert.equal((await missing.json()).state,"LOCKED");
+  const accessMissing=await deployed.fetch(new Request("https://cc.jl-bke.com/failures/100"),
+    {BKE_PREPRODUCTION:"true"});
+  assert.equal(accessMissing.status,503);
+  assert.equal((await accessMissing.json()).error,"COMMAND_CENTER_ACCESS_NOT_VERIFIED");
+  const wrongHostname=await deployed.fetch(new Request("https://wrong.example/failures/100"),
+    {BKE_PREPRODUCTION:"true",BKE_ACCESS_POLICY_VERIFIED:"true"});
+  assert.equal(wrongHostname.status,503);
+  assert.equal((await wrongHostname.json()).error,"COMMAND_CENTER_HOSTNAME_NOT_APPROVED");
+});
