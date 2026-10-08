@@ -18,14 +18,30 @@ test("deployed entrypoint fails closed without explicit PREPRODUCTION environmen
   }
 });
 
-test("named PREPRODUCTION environment serves the read-first overview", async () => {
-  const response = await worker.fetch(new Request("https://command.test/"), {
+test("Access policy must be operator-verified before serving PREPRODUCTION data", async () => {
+  for (const marker of [undefined, null, "", "false", "TRUE", true]) {
+    const env = { BKE_PREPRODUCTION: "true", GITHUB_OWNER: "jan2xo", GITHUB_REPO: "bke-worker" };
+    if (marker !== undefined) env.BKE_ACCESS_POLICY_VERIFIED = marker;
+    const response = await worker.fetch(new Request("https://cc.jl-bke.com/api/overview"), env);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {
+      error: "COMMAND_CENTER_ACCESS_NOT_VERIFIED", state: "LOCKED",
+    });
+  }
+});
+
+test("both explicit PREPRODUCTION and verified-access markers enable route execution", async () => {
+  // This is runtime plumbing only. In production the Access edge must be
+  // independently tested; the marker is not an authentication mechanism.
+  const response = await worker.fetch(new Request("https://cc.jl-bke.com/not-a-route"), {
     BKE_PREPRODUCTION: "true",
+    BKE_ACCESS_POLICY_VERIFIED: "true",
     GITHUB_OWNER: "jan2xo",
     GITHUB_REPO: "bke-worker",
   });
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /BKE Command Center/);
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "ROUTE_NOT_FOUND" });
 });
 
 test("Wrangler config isolates marker in a named PREPRODUCTION environment", () => {
@@ -41,6 +57,24 @@ test("Wrangler config isolates marker in a named PREPRODUCTION environment", () 
   const beforeNamedEnv = config.split("[env.preproduction]")[0];
   assert.doesNotMatch(beforeNamedEnv, /^BKE_PREPRODUCTION\s*=/m);
   assert.doesNotMatch(config, /^\[env\.production(?:\.|\])|^\[env\.prod(?:\.|\])/m);
+});
+
+test("custom domain attaches only to the exact named PREPRODUCTION environment", () => {
+  const config = source("wrangler.toml");
+  const root = config.split("[env.preproduction]")[0];
+  assert.doesNotMatch(root, /(^|\n)\s*(route\s*=|\[\[routes\]\]|\[\[env\.|BKE_ACCESS_POLICY_VERIFIED)/m);
+  assert.equal((config.match(/\[\[env\.preproduction\.routes\]\]/g) || []).length, 1);
+  const match = config.match(/\[\[env\.preproduction\.routes\]\]\s*\n([\s\S]*?)(?=\n\[|$)/);
+  assert.ok(match, "named environment must define its own route");
+  assert.match(match[1], /^pattern = "cc\.jl-bke\.com"$/m);
+  assert.match(match[1], /^custom_domain = true$/m);
+  assert.doesNotMatch(match[1], /\*/);
+  assert.doesNotMatch(config, /\[\[env\.(?:prod|production)\.routes\]\]/);
+  assert.match(config, /^workers_dev = false$/m);
+  assert.doesNotMatch(config, /^BKE_ACCESS_POLICY_VERIFIED\s*=/m,
+    "access verification marker must be an encrypted PREPRODUCTION secret");
+  assert.doesNotMatch(config, /^GITHUB_TOKEN\s*=/m,
+    "GitHub token must be an encrypted PREPRODUCTION secret");
 });
 
 test("NPM scripts never select the default Cloudflare deployment", () => {
