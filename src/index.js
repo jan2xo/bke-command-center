@@ -98,4 +98,17 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
   }
 }
 
-export default { fetch: (request, env) => handleRequest(request, env) };
+// The named PREPRODUCTION deployment sets this flag. Any accidental default
+// deployment or incomplete environment configuration must not serve GitHub
+// observability, including on-demand job failure evidence.
+export function preproductionFetch(request, env) {
+  if (env?.BKE_PREPRODUCTION !== "true") {
+    return Response.json(
+      { error: "COMMAND_CENTER_PREPRODUCTION_ONLY", state: "LOCKED" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return handleRequest(request, env);
+}
+
+export default { fetch: preproductionFetch };
