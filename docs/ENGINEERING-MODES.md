@@ -7,7 +7,7 @@ GitHub is the sole task/PR/CI authority. Every independent intent uses a fresh b
 ## NORMAL (current/default)
 
 - Branch prefix such as `feat/*`, `fix/*` or other non-`nitro/*`.
-- PR body: `**Engineering mode:** \u0060NORMAL\u0060`.
+- PR body: `**Engineering mode:** `NORMAL``.
 - CI remains configured on `pull_request` and `push` to `main`; every ordinary PR update can trigger a test run.
 - Same certification graph: `npm ci`, `npm test`, `npm run check`, named PREPRODUCTION `cloudflare:dry-run`.
 - Keep exact-head review and SHA-locked squash merge. The `main` push may trigger its existing CI as usual.
@@ -15,7 +15,7 @@ GitHub is the sole task/PR/CI authority. Every independent intent uses a fresh b
 ## NITRO (experimental; NO development CI by convention)
 
 - New head branch **`nitro/<intent>`** from current `main`; target `main` in the **same** repo.
-- PR has exactly one `bke-ci:*` label, namely **`bke-ci:nitro`**, and its body contains exactly `**Engineering mode:** \u0060NITRO\u0060`.
+- PR has exactly one `bke-ci:*` label, namely **`bke-ci:nitro`**, and its body contains exactly `**Engineering mode:** `NITRO``.
 - **Every development commit, including the first PR-opening and every repair commit, contains the literal `[skip ci]` in the Git commit message.**
 - Avoid using `git push --force` and never reuse merged branches. Using GitHub's Git data API or contents API must still set `[skip ci]` on every write.
 - Do not trigger `workflow_dispatch` while engineering, editing, reviewing or fixing. Do not open a second workflow as a PR Guard.
