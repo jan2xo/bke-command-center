@@ -24,6 +24,11 @@ export function normalizeFailureVisibility(payload, fullName) {
   if (!REPO.test(fullName || "") || !Array.isArray(runs) || runs.length > MAX_RUNS) {
     throw new Error("GITHUB_FAILURE_WINDOW_AMBIGUOUS");
   }
+  // An empty history is not evidence that CI is healthy.
+  if (runs.length === 0) {
+    return { ...unknownFailureVisibility(), fetched_run_count: 0,
+      reason: "NO_WORKFLOW_RUNS_OBSERVED" };
+  }
   const ids = new Set();
   const normalized = runs.map((run) => {
     if (!run || !Number.isSafeInteger(run.id) || run.id <= 0 ||
