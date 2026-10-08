@@ -20,7 +20,7 @@ Wrangler is pinned to `4.148.0`. The dry-run explicitly builds the **named `prep
 ## Routes
 
 - `/` GitHub-derived engineering overview: open PRs, assignment conflicts, explicitly scoped recent merges and drill-down links (worker process liveness is **UNKNOWN**)
-- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope; also includes an independently degradable GitHub Actions failure-visibility snapshot (latest **8** workflow runs)
+- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope; also includes an independently degradable GitHub Actions failure-visibility snapshot (latest **30** workflow runs)
 - `/worker` worker assignment/ownership-derived view (not independent process liveness)
 - `/pr/:number` human-readable PR detail
 - `/api/worker` normalized GitHub-derived worker ownership state
@@ -29,9 +29,9 @@ Wrangler is pinned to `4.148.0`. The dry-run explicitly builds the **named `prep
 
 ## Failure visibility (first Nitro pilot)
 
-The home dashboard shows a compact **Failure visibility** section derived solely from the latest eight workflow runs of `jan2xo/bke-worker` GitHub Actions. The section identifies workflow names, observed run status/conclusion, observed update time, source run head SHA and a safely constructed GitHub Actions run link. A relay-named workflow failure is an **integration CI failure**, never proof that Cloudflare itself is down. **Cloudflare runtime status is UNKNOWN** without direct telemetry; absence of failure in this bounded sample is not proof of general health.
+The home dashboard shows a compact **Failure visibility** section derived solely from the latest 30 workflow runs of `jan2xo/bke-worker` GitHub Actions. The section identifies workflow names, observed run status/conclusion, observed update time, source run head SHA and a safely constructed GitHub Actions run link. FAILED/TIMED_OUT, CANCELLED and ACTION_REQUIRED are distinct statuses; a cancellation is not an external service outage. A relay-named workflow failure is an **integration CI failure**, never proof that Cloudflare itself is down. **Cloudflare runtime status is UNKNOWN** without direct telemetry; absence of failure in this bounded sample is not proof of general health.
 
-The homepage does **one additional bounded GitHub API request** (`actions/runs?per_page=8`) and **does not fetch workflow jobs or raw logs**, avoiding costly fan-out. The individual GitHub Actions run linked from each failure is the authoritative drill-down for the first causal step. If GitHub Actions API access is unavailable or its evidence is malformed, the panel degrades to **UNKNOWN** while the existing PR overview remains accessible. All output is escaped and `/api/overview` is read-only/no-store.
+The homepage does **one additional bounded GitHub API request** (`actions/runs?per_page=30`) and **does not fetch workflow jobs or raw logs**, avoiding costly fan-out. The **Inspect failing steps** link opens an on-demand, bounded `/failures/:run_id` HTML diagnosis (and `/api/failures/:run_id` JSON) for only the current sampled failures/cancellations. It retrieves that specific GitHub Actions job list once, summarizes the first **observed** failed step, any downstream required certification failures, and successful jobs; it never treats an observed failed step as definitive external root cause. A GitHub Actions run link remains the authoritative drill-down to full evidence. For incomplete, ambiguous, cancelled-without-jobs, or unavailable job evidence the answer remains explicitly UNKNOWN rather than inventing a cause. If GitHub Actions API access is unavailable or its evidence is malformed, the panel degrades to **UNKNOWN** while the existing PR overview remains accessible. All output is escaped and `/api/overview` is read-only/no-store.
 
 This is a NITRO-engineered experiment: no automatic CI during PR implementation; manually dispatch the merge gate on the exact PR head only after code review. Do not publish until the required pre-merge proof has passed. Cloudflare hosting and production remain unchanged.
 
