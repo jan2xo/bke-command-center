@@ -13,12 +13,21 @@ Wrangler is pinned to `4.148.0`. The dry-run explicitly builds the **named `prep
 
 ## Routes
 
-- `/` overview
+- `/` GitHub-derived engineering overview: open PRs, assignment conflicts, explicitly scoped recent merges and drill-down links (worker process liveness is **UNKNOWN**)
+- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope
 - `/worker` worker assignment/ownership-derived view (not independent process liveness)
 - `/pr/:number` human-readable PR detail
 - `/api/worker` normalized GitHub-derived worker ownership state
 - `/api/pr/:number` exact-head PR state, required-certification status, causal failure capsule, downstream effects, and post-run summary
 - `/api/pr/:number/evidence/job/:job_id` bounded failure excerpt for a job already proven to be failure evidence for that PR's current exact-head certification attempt
+
+## Dashboard data integrity
+
+The home view reads GitHub only; it stores nothing and never writes, dispatches, certifies, or merges. Open PRs are read with a bounded first page of 100; a completely filled page fails closed rather than presenting potentially incomplete ownership as authoritative. Recent merges are a **sample of the 12 most recently closed PRs**, not a total or complete archive. Ambiguous labels, invalid worker IDs, and one worker assigned across multiple open PRs are shown as ownership conflicts, not as healthy/online state.
+
+The dashboard never equates a PR label with live worker process status; liveness stays UNKNOWN until an independently certified runtime/heartbeat integration exists. Routine overview loads do not fetch individual PR certification runs, check jobs, or logs. PR details are fetched on demand through the existing exact-head evidence routes. Dashboard and API responses are `Cache-Control: no-store`, and unexpected upstream failures return a generic UNKNOWN/502 rather than exposing GitHub error bodies.
+
+This is **code/UI readiness**, not Cloudflare deployment. Protected PREPRODUCTION ingress, operator-managed encrypted credentials, deployment and live validation remain tracked in [issue #5](https://github.com/jan2xo/bke-command-center/issues/5).
 
 ## Exact-head certification correlation
 
