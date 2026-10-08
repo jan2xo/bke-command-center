@@ -17,7 +17,7 @@ export function unknownFailureVisibility() {
     scope: "latest_30_workflow_runs", fetched_run_count: null,
     failed_run_count: null, interrupted_run_count: null,
     blocked_run_count: null, pending_run_count: null,
-    failures: [], cloudflare_runtime: "UNKNOWN",
+    failures: [], observations: [], cloudflare_runtime: "UNKNOWN",
     reason: "RUN_EVIDENCE_UNAVAILABLE",
   };
 }
@@ -88,7 +88,7 @@ export function renderFailureVisibility(state) {
     INTERRUPTIONS_OBSERVED: "Recent CI cancellations detected",
     BLOCKED_RUNS: "Recent CI runs require action",
     PENDING_RUNS: "No reported failures; some runs are pending",
-    NO_FAILURES_IN_SAMPLE: "No failures in sampled recent CI",
+    NO_FAILURES_IN_SAMPLE: "No reportable incidents in sampled recent CI",
     UNKNOWN: "Failure evidence unavailable",
   }[f.status] || "Failure state UNKNOWN";
   const rows = f.failures.map((x) =>
@@ -105,6 +105,11 @@ export function renderFailureVisibility(state) {
     '<p><b>' + escape(status) + '</b></p>' +
     '<p class="muted">Source: GitHub Actions · Window: latest 30 workflow runs · No raw logs fetched.</p>' +
     (rows ? '<ul>' + rows + '</ul>' : "") +
-    '<p class="muted">Cloudflare runtime: <b>UNKNOWN</b>. A failed GitHub relay integration check is not proof that Cloudflare is down. Inspect the linked run for job-level root cause. No incidents in the sampled window does not establish system-wide health.</p>' +
+    '<p class="muted">GitHub Actions connection: <b>' +
+      (f.status === "UNKNOWN" ? "UNKNOWN" : "OBSERVED") + '</b> · ' +
+      'Cloudflare account/Worker runtime: <b>UNKNOWN</b> · ' +
+      'Relay connection health: <b>NOT MEASURED</b>. ' +
+      'A failed GitHub relay integration check is not proof of a Cloudflare outage. ' +
+      'No incidents in the sampled window does not establish system-wide health.</p>' +
     '</section>';
 }
