@@ -1,31 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { certificationSummary, reduceFirstCausalFailure, buildFailureCapsule } from "../src/core.js";
+import {certificationSummary,reduceFirstCausalFailure,buildFailureCapsule} from "../src/core.js";
 
-test("exact-head certification ignores evidence for other heads", () => {
-  const result = certificationSummary({
-    exactHead:"abc",
-    checks:[{sha:"abc",conclusion:"success"},{sha:"old",conclusion:"failure"}],
-    workflowRuns:[{head_sha:"abc",conclusion:"success"},{head_sha:"old",conclusion:"failure"}]
-  });
-  assert.equal(result.state,"PASSED");
+test("exact-head certification ignores other heads",()=>{
+  assert.equal(certificationSummary({exactHead:"abc",checks:[{sha:"abc",conclusion:"success"},{sha:"old",conclusion:"failure"}],workflowRuns:[{head_sha:"abc",conclusion:"success"},{head_sha:"old",conclusion:"failure"}]}).state,"PASSED");
 });
-
-test("first causal failure separates downstream red gates", () => {
-  const result = reduceFirstCausalFailure([
-    {occurred_at:"2026-10-08T08:00:00Z",boundary:"cloudflare-relay",stage:"test",conclusion:"failure",summary:"protocol/reconnect test assertion",causal:true},
-    {occurred_at:"2026-10-08T08:01:00Z",boundary:"certification",stage:"certification",conclusion:"failure",summary:"required certification failed"}
-  ]);
-  assert.equal(result.causal.boundary,"cloudflare-relay");
-  assert.equal(result.causal.classification,"CAUSAL");
-  assert.equal(result.downstream[0].classification,"DOWNSTREAM");
+test("zero evidence is UNKNOWN, never PASS",()=>assert.equal(certificationSummary({exactHead:"abc"}).state,"UNKNOWN"));
+test("source_sha correlates certification proof",()=>assert.equal(certificationSummary({exactHead:"abc",proof:[{source_sha:"abc",status:"success"}]}).state,"PASSED"));
+test("first causal failure preserves downstream",()=>{
+  const r=reduceFirstCausalFailure([{occurred_at:"2026-10-08T08:00:00Z",boundary:"cloudflare-relay",stage:"test",conclusion:"failure",summary:"protocol/reconnect test assertion",causal:true},{occurred_at:"2026-10-08T08:01:00Z",boundary:"certification",conclusion:"failure",summary:"required certification failed"}]);
+  assert.equal(r.causal.boundary,"cloudflare-relay"); assert.equal(r.downstream[0].classification,"DOWNSTREAM");
 });
-
-test("PR #82 fixture capsule does not hard-code the PR in reducer", () => {
-  const capsule = buildFailureCapsule({
-    repo:"jan2xo/bke-worker",pr_number:82,exact_head:"fixture-head",worker_id:"android-worker-a",
-    evidence:[{occurred_at:"2026-10-08T08:00:00Z",host:"github_actions",boundary:"cloudflare-relay",stage:"test",conclusion:"failure",summary:"protocol/reconnect test assertion",causal:true,evidence_run_ids:["run-1"],next_owner:"worker",next_action:"fix protocol test"}]
-  });
-  assert.equal(capsule.boundary,"cloudflare-relay");
-  assert.equal(capsule.classification,"CAUSAL");
+test("skipped is not unaffected",()=>assert.deepEqual(reduceFirstCausalFailure([{boundary:"android",conclusion:"skipped"}]).unaffected,[]));
+test("capsule preserves evidence and downstream",()=>{
+  const c=buildFailureCapsule({repo:"jan2xo/bke-worker",pr_number:82,exact_head:"h",worker_id:"android-worker-a",evidence:[{boundary:"relay",conclusion:"failure",summary:"root",causal:true,evidence:[{id:"job-1",url:"https://example.invalid/job"}]},{boundary:"certification",conclusion:"failure",summary:"aggregate"}]});
+  assert.equal(c.classification,"CAUSAL"); assert.equal(c.downstream[0].classification,"DOWNSTREAM"); assert.equal(c.evidence[0].url,"https://example.invalid/job");
 });
