@@ -22,12 +22,22 @@ Wrangler is pinned to `4.148.0`. The dry-run explicitly builds the **named `prep
 ## Routes
 
 - `/` GitHub-derived engineering overview: open PRs, assignment conflicts, explicitly scoped recent merges and drill-down links (worker process liveness is **UNKNOWN**)
-- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope
+- `/api/overview` bounded read-only snapshot of open PRs and latest 12 closed PRs, with explicit collection scope; also includes an independently degradable GitHub Actions failure-visibility snapshot (latest **30** workflow runs)
 - `/worker` worker assignment/ownership-derived view (not independent process liveness)
 - `/pr/:number` human-readable PR detail
 - `/api/worker` normalized GitHub-derived worker ownership state
 - `/api/pr/:number` exact-head PR state, required-certification status, causal failure capsule, downstream effects, and post-run summary
 - `/api/pr/:number/evidence/job/:job_id` bounded failure excerpt for a job already proven to be failure evidence for that PR's current exact-head certification attempt
+
+## Failure visibility (first Nitro pilot)
+
+**Separate observation sources:** recent GitHub Actions runs (bounded to 30) and the official unauthenticated [Cloudflare global status API](https://www.cloudflarestatus.com/api) (`/api/v2/status.json`, bounded 2.5-second request). The public Cloudflare status is **platform-wide**, not the health of `bke-command-center-preproduction`, the linked Cloudflare account, or BKE Relay. Account-specific Worker runtime and relay connection health remain UNKNOWN until independently instrumented. A published global incident may or may not affect our Worker; an observed GitHub CI failure alone does not prove a Cloudflare outage. The sources degrade independently: outage of either observation feed never turns the other into green or prevents the PR overview from loading.
+
+The home dashboard shows a compact **Failure visibility** section derived from the latest 30 workflow runs of `jan2xo/bke-worker` GitHub Actions. The section identifies workflow names, observed run status/conclusion, observed update time, source run head SHA and a safely constructed GitHub Actions run link. FAILED/TIMED_OUT, CANCELLED and ACTION_REQUIRED are distinct statuses; a cancellation is not an external service outage. A relay-named workflow failure is an **integration CI failure**, never proof that Cloudflare itself is down. **Cloudflare runtime status is UNKNOWN** without direct telemetry; absence of failure in this bounded sample is not proof of general health.
+
+The homepage does **two independent bounded reads**: one GitHub Actions request (`actions/runs?per_page=30`) and one Cloudflare public global-status request. Neither needs a new credential. The homepage **does not fetch individual workflow jobs or raw logs**, avoiding costly fan-out. The **Inspect failing steps** link opens an on-demand, bounded `/failures/:run_id` HTML diagnosis (and `/api/failures/:run_id` JSON) for only the current sampled failures/cancellations. It retrieves that specific GitHub Actions job list once, summarizes the first **observed** failed step, any downstream required certification failures, and successful jobs; it never treats an observed failed step as definitive external root cause. A GitHub Actions run link remains the authoritative drill-down to full evidence. For incomplete, ambiguous, cancelled-without-jobs, or unavailable job evidence the answer remains explicitly UNKNOWN rather than inventing a cause. If GitHub Actions API access is unavailable or its evidence is malformed, the panel degrades to **UNKNOWN** while the existing PR overview remains accessible. All output is escaped and `/api/overview` is read-only/no-store.
+
+This is a NITRO-engineered experiment: no automatic CI during PR implementation; post the owner-only /nitro-certify exact-head PR command only after code review. Do not publish until the required pre-merge proof has passed. Cloudflare hosting and production remain unchanged.
 
 ## Dashboard data integrity
 

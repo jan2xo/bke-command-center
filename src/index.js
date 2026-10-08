@@ -1,6 +1,7 @@
 import { createGitHubAdapter, assignmentFromPullRequest, collectEvidence } from "./github.js";
 import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRunSummary } from "./core.js";
 import { dashboardState, renderDashboard } from "./dashboard.js";
+import { failureDetailState, renderFailureDetail } from "./failure-details.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -96,6 +97,19 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
   const url = new URL(request.url);
   const gh = createAdapter(env);
   try {
+    // Explicitly selected recent CI incidents only. No arbitrary job/log
+    // enumeration, no polling and no expensive job fanout on the homepage.
+    const incidentMatch = url.pathname.match(/^\/(api\/)?failures\/(\d+)$/);
+    if (incidentMatch) {
+      const runId = Number(incidentMatch[2]);
+      if (!Number.isSafeInteger(runId) || runId <= 0) {
+        return noStoreJson({ error: "INVALID_RUN_ID" }, 400);
+      }
+      const detail = await failureDetailState(gh, runId);
+      if (!detail) return noStoreJson({ error: "RUN_NOT_IN_RECENT_INCIDENT_WINDOW" }, 404);
+      if (incidentMatch[1]) return noStoreJson(detail);
+      return page("Failure diagnosis", renderFailureDetail(detail));
+    }
     const evidenceMatch = url.pathname.match(/^\/api\/pr\/(\d+)\/evidence\/job\/(\d+)$/);
     if (evidenceMatch) {
       const prNumber = Number(evidenceMatch[1]);
