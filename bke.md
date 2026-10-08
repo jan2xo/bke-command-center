@@ -1,28 +1,50 @@
 # BKE Engineering Standard
 
-This document is the canonical cross-project engineering standard for BKE repositories.
-
-New BKE projects should include a repository-local `AGENTS.md` that references this standard and then declares only the project-specific rules that extend it.
+This file is the canonical cross-project engineering instruction for BKE repositories.
 
 Canonical source:
 
-`jan2xo/bke-command-center/docs/BKE-ENGINEERING-STANDARD.md` on current `main`.
+`jan2xo/bke-command-center/bke.md` on current `main`.
 
-When reproducibility matters for a particular PR or release, record the exact BKE Engineering Standard commit SHA used for that work.
+Every BKE repository must carry a local root copy named exactly:
+
+`bke.md`
+
+Do not use `AGENTS.md` as the BKE project instruction contract.
+
+---
+
+## 0. New-project bootstrap
+
+For every new BKE repository, the **first engineering task** is to retrieve the current canonical `bke.md` from `jan2xo/bke-command-center` and place it at the new repository root.
+
+The human operator is not expected to copy this file manually.
+
+The bootstrap actor should:
+
+1. read canonical `bke.md` from `jan2xo/bke-command-center` current `main`;
+2. create root `bke.md` in the target repository;
+3. record the canonical source commit SHA used for that copy in the bootstrap PR/issue;
+4. only then begin project-specific engineering.
+
+If a BKE repository does not yet contain `bke.md`, treat installing it as the first setup task before substantial engineering.
+
+Project-specific architecture belongs in normal repository docs and GitHub PRs/issues. Do not fork the engineering standard silently.
+
+When a project intentionally needs an exception, record the exception explicitly in the relevant PR/issue and explain its scope.
 
 ---
 
 ## 1. Authority hierarchy
 
-For engineering work, use this authority order unless a repository explicitly declares a stricter local rule:
+For engineering work, use this order unless an explicit project decision establishes a stricter local rule:
 
 1. explicit current operator authorization;
-2. repository-local `AGENTS.md` from current `main`;
-3. this BKE Engineering Standard;
-4. live GitHub PR/task/issue state;
-5. repository implementation, tests, CI, release evidence;
-6. relevant historical PRs/issues;
-7. conversational memory or model-specific context.
+2. local root `bke.md`;
+3. live GitHub PR/task/issue state;
+4. repository implementation, tests, CI, release evidence;
+5. relevant historical PRs/issues;
+6. conversational memory or model-specific context.
 
 Live GitHub state is canonical for implementation, PR, CI, merge, release, and repository truth.
 
@@ -34,7 +56,7 @@ Do not require a particular ChatGPT Project, model, conversation, or private mem
 
 Before substantial engineering:
 
-`read local AGENTS.md -> read this standard -> recover current main -> recover open PRs/issues/workflows -> identify exact authorized intent/head -> execute`
+`read bke.md -> recover current main -> recover open PRs/issues/workflows -> identify exact authorized intent/head -> execute`
 
 If rationale, prior decisions, constraints, or historical context are missing:
 
@@ -56,7 +78,7 @@ A PR is both review surface and durable execution ledger.
 
 ## 4. PR execution ledger
 
-PR body should contain the current human-readable intent, scope, architecture/security boundaries, task checklist, and certification plan.
+The PR body should contain the current human-readable intent, scope, architecture/security boundaries, task checklist, and certification plan.
 
 Chronological execution evidence belongs in PR comments/checkpoints.
 
@@ -68,17 +90,15 @@ Recommended durable checkpoints:
 - `BKE EXECUTION CHECKPOINT — BLOCKED`
 - `BKE EXECUTION CHECKPOINT — MERGED`
 
-Record exact SHAs and workflow/run identifiers where they are relevant.
+Record exact SHAs and workflow/run identifiers where relevant.
 
-Do not turn the PR description into an append-only transcript.
+Do not turn the PR body into an append-only transcript.
 
 ## 5. Task checklist as execution completeness
 
 Substantial worker-owned PRs should carry an explicit machine-readable task checklist.
 
-Use the checklist to answer whether the current intent is actually complete.
-
-Each required item should resolve to a bounded state such as:
+Required items should resolve to a bounded state such as:
 
 - `DONE`
 - `BLOCKED`
@@ -143,7 +163,7 @@ Raw logs remain available for drill-down.
 
 ## 9. Authority vs execution
 
-Separate intelligence/execution from authority.
+Separate execution from authority.
 
 An executor may inspect, implement, test, debug, and certify only within its delegated intent.
 
@@ -199,11 +219,13 @@ Human authentication remains human-controlled.
 
 When an intent touches another BKE repository:
 
-- inspect that repository's local `AGENTS.md` and live GitHub state;
+- inspect that repository's local `bke.md` and live GitHub state;
 - treat that repository as canonical for its own implementation;
 - minimize cross-repository mutation;
 - pin immutable SHAs/releases when a dependency requires reproducibility;
 - do not silently import assumptions from one BKE project into another.
+
+If the target BKE repository has no `bke.md`, bootstrap it before substantial work.
 
 ## 14. Portability
 
@@ -213,7 +235,7 @@ Essential architecture and operating knowledge must not exist only in private co
 
 The standard pattern is:
 
-`central BKE standard + local AGENTS.md + live GitHub PR/issues/CI = executable project context`
+`local bke.md + live GitHub PRs/issues/CI + repository docs = executable project context`
 
 ## 15. Canonical maxims
 
@@ -222,3 +244,5 @@ The standard pattern is:
 `Context needed? Recover it from the repo, PRs, and issues before guessing.`
 
 `One intent -> one fresh PR -> minimum complete certification -> exact-head proof -> authorized merge.`
+
+`New BKE repo? First task: get bke.md there.`
