@@ -2,6 +2,12 @@
 
 A lightweight, read-first Cloudflare Worker for **PREPRODUCTION** observability. GitHub remains the engineering authority; Command Center derives state and does not create a second task database.
 
+## Engineering modes (Command Center experiment only)
+
+This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. The `workflow_dispatch` `ci` gate must be manually run on the exact Nitro PR branch with the exact PR number and SHA **only once the work is fully wired**. Never merge without certified exact-head proof. No PR Guard is added.
+
+Read the [full mode contract, merge-gate instructions, branch-protection caveats, and failure procedure](docs/ENGINEERING-MODES.md). No changes to other BKE repositories, Cloudflare production, access controls, or deploys.
+
 ## Local development and certification
 
 1. Run `npm ci`.
