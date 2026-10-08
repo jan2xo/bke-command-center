@@ -79,9 +79,9 @@ export async function collectEvidence(gh,pr,exactHead){
   for(const run of candidateRuns){
     let js=[];
     try{js=(await gh.workflowJobs(run.id)).jobs||[]}catch{}
-    for(const job of js.slice(0,100)){
+    for(const job of js.slice(0,12)){
       let resolved=run.head_sha===exactHead?exactHead:null;
-      if(!resolved && (job.conclusion==="failure" || /required certification|relay/i.test(job.name||""))){
+      if(!resolved){
         try{resolved=resolveSourceShaFromLog((await gh.workflowJobLogs(job.id)).content)}catch{}
       }
       jobs.push(evidenceFromJob(job,run,resolved));
