@@ -9,6 +9,9 @@ compatibility_date = "2026-10-08"
 [env.preproduction]
 # Wrangler deploy --env preproduction resolves a separate Worker named
 # bke-command-center-preproduction.
+# Do not expose a public workers.dev endpoint; operator must configure a
+# protected PREPRODUCTION route before live validation.
+workers_dev = false
 
 [env.preproduction.vars]
 BKE_PREPRODUCTION = "true"
