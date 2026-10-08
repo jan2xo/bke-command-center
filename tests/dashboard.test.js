@@ -39,14 +39,17 @@ test("dashboard detects ownership conflicts across distinct PRs", () => {
     openPr(14, []),
     openPr(15, ["bke-worker:worker-b", "bke-worker:worker-c"]),
     openPr(16, ["bke-worker:INVALID_OWNERSHIP"]),
+    openPr(17, ["bke-worker:worker-c"]),
   ], [closedPr(82), closedPr(81, null)]);
   assert.deepEqual(state.metrics, {
-    open_prs: 6, assigned_prs: 1, unassigned_prs: 1, ownership_conflicts: 4,
+    open_prs: 7, assigned_prs: 1, unassigned_prs: 1, ownership_conflicts: 5,
   });
   assert.equal(state.open_pull_requests.find((x) => x.number === 11).conflict_reason,
     "WORKER_OWNS_MULTIPLE_OPEN_PRS");
   assert.equal(state.open_pull_requests.find((x) => x.number === 15).conflict_reason,
     "AMBIGUOUS_PR_LABELS");
+  assert.equal(state.open_pull_requests.find((x) => x.number === 17).conflict_reason,
+    "WORKER_OWNS_MULTIPLE_OPEN_PRS");
   assert.equal(state.recently_merged_sample.length, 1);
   assert.equal(state.recently_merged_sample[0].number, 82);
   assert.equal(state.liveness, "UNKNOWN");
