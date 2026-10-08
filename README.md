@@ -4,9 +4,11 @@ A lightweight, read-first Cloudflare Worker for **PREPRODUCTION** observability.
 
 ## Engineering modes (Command Center experiment only)
 
-This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. The `workflow_dispatch` `ci` gate must be manually run on the exact Nitro PR branch with the exact PR number and SHA **only once the work is fully wired**. Never merge without certified exact-head proof. No PR Guard is added.
+This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. At the ready-for-merge gate, the owner posts an exact `/nitro-certify <head-SHA>` PR comment to trigger the required tests; the old manual `workflow_dispatch` path remains a fallback. Never merge without certified exact-head proof. No PR Guard is added.
 
 Read the [full mode contract, merge-gate instructions, branch-protection caveats, and failure procedure](docs/ENGINEERING-MODES.md). No changes to other BKE repositories, Cloudflare production, access controls, or deploys.
+
+**Nitro pre-merge CI without a CLI (preferred):** After engineering and review, ChatGPT posts an owner-authored PR comment exactly `/nitro-certify <current-exact-40-hex-head-SHA>`. The separate `nitro-certify.yml` workflow is triggered by `issue_comment`, validates owner authority and current Nitro PR/head before allocating expensive tests, tests the exact checked-out head, then revalidates it. It never deploys Cloudflare. Ordinary comments can create **skipped GitHub workflow events**, but no expensive CI jobs. `workflow_dispatch` remains an optional fallback. Details: [engineering modes](docs/ENGINEERING-MODES.md).
 
 ## Local development and certification
 
