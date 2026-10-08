@@ -137,6 +137,24 @@ export function preproductionFetch(request, env) {
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
+  // Defense in depth: configuring the hostname is NOT proof that Access
+  // protects it. The operator must independently verify the exact Access
+  // policy and unauthenticated-deny behavior before provisioning this
+  // PREPRODUCTION encrypted secret. Do not put it in wrangler vars.
+  if (env?.BKE_ACCESS_POLICY_VERIFIED !== "true") {
+    return Response.json(
+      { error: "COMMAND_CENTER_ACCESS_NOT_VERIFIED", state: "LOCKED" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  // A protected application on cc.jl-bke.com must not become reachable
+  // through a later accidental second domain or workers.dev alias.
+  if (new URL(request.url).hostname.toLowerCase() !== "cc.jl-bke.com") {
+    return Response.json(
+      { error: "COMMAND_CENTER_HOSTNAME_NOT_APPROVED", state: "LOCKED" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   return handleRequest(request, env);
 }
 

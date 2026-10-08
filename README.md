@@ -45,23 +45,26 @@ Raw logs remain at GitHub. Command Center never mirrors them. A failure excerpt 
 
 ## PREPRODUCTION deployment — operator-only, not yet completed
 
+Selected private hostname: **`cc.jl-bke.com`**, in the existing `jl-bke.com` Cloudflare zone. A staging PR declares a dedicated Custom Domain under `[[env.preproduction.routes]]`; do not merge/deploy until Cloudflare Access protection is independently verified. See [protected PREPRODUCTION activation runbook](docs/PREPRODUCTION-ACCESS-RUNBOOK.md). The named Worker now also rejects all requests unless a human-provisioned encrypted `BKE_ACCESS_POLICY_VERIFIED` secret is exactly `true`, **and** the request Host is exactly `cc.jl-bke.com`. The marker is only a release latch, not authentication; Cloudflare Access at the edge is mandatory. Preview URLs are explicitly disabled.
+
+
 Issue [#5](https://github.com/jan2xo/bke-command-center/issues/5) tracks **actual** protected deployment and live verification. A passing dry-run is not proof of deployment.
 
 ### Why the default Worker is locked
 
 - `wrangler.toml` defines a separate `[env.preproduction]` target. Wrangler resolves its script name to `bke-command-center-preproduction`, distinct from the top-level `bke-command-center` Worker.
 - Only `[env.preproduction.vars]` contains `BKE_PREPRODUCTION = "true"`. The deployed entrypoint returns `503 LOCKED` without that exact value. The bare/default Worker is therefore not a supported deployment target.
-- `workers_dev = false` on PREPRODUCTION prevents accidental public exposure through a workers.dev hostname; no route/custom domain is committed.
+- `workers_dev = false` and `preview_urls = false` on PREPRODUCTION prevent public workers.dev and preview aliases. The staging branch proposes **only** the dedicated `cc.jl-bke.com` Custom Domain; it is not deployed or operationally accepted.
 - All repo-provided Wrangler scripts include an explicit `--env preproduction`. The CI workflow runs only `cloudflare:dry-run`.
 - This is a **deployment isolation guard, not an authentication system**. A protected route (for example Cloudflare Access or equivalently enforced private ingress) must be configured before serving real GitHub engineering data or log excerpts.
 
 ### Operator preflight
 
-1. Confirm a dedicated PREPRODUCTION Cloudflare Worker and **protected ingress** design; no production routes, custom domains, or browser/security secrets may be reused. If the protected route cannot be confirmed, stop without making the service public.
+1. In the **existing** `jl-bke.com` zone, confirm `cc.jl-bke.com` is unused and independently verify Cloudflare Access protects that exact hostname for approved operators. Do not alter the Air Stack Pages hostname. If Access cannot be confirmed, stop before publishing; follow the runbook.
 2. Review the exact certified GitHub PR head, required CI, and the target Worker name. Do not deploy from an uncertified branch.
 3. Human operator provisions a least-privilege GitHub read credential **in the Cloudflare PREPRODUCTION encrypted secret store** under `GITHUB_TOKEN`. The secret is environment-specific, never in `[vars]`, repository, chat, PR comments, or logs.
 4. Human operator provisions Cloudflare deploy permissions through the appropriate secure credential mechanism. Do not automate Cloudflare login, OAuth, MFA, or security challenges.
-5. Run `npm run cloudflare:dry-run` to inspect the target and bundle. The only repository-provided publish command is `npm run cloudflare:deploy:preproduction`, which uses explicit `--env preproduction`. Execute it **only after** access review and authorized approval. It is not run by CI.
+5. Run `npm run cloudflare:dry-run` to inspect the target and bundle. The only repository-provided publish command is `npm run cloudflare:deploy:preproduction`, which uses explicit `--env preproduction`. Execute it **only after** access review and authorized approval. It is not run by CI. The Worker remains intentionally LOCKED until Cloudflare Access denial/allow testing is evidenced and the `BKE_ACCESS_POLICY_VERIFIED` secret is provisioned through the human-owned Cloudflare secret store.
 6. Attach and verify a protected PREPRODUCTION route before sending users to the service. With `workers_dev = false`, a missing route means the deployment is deliberately not publicly reachable.
 
 Cloudflare secrets are not inherited across named environments. If using Wrangler's `secret put` path, verify the intended `--env preproduction` target and ingress policy first; secret updates can affect live Worker versions. Never print a secret value.
