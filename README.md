@@ -7,7 +7,7 @@ A lightweight, read-first Cloudflare Worker for preproduction observability.
 1. Install dependencies: `npm install`
 2. Set a GitHub token with read-only repository/actions access in your local environment as `GITHUB_TOKEN`.
 3. Run `npm test` and `npm run check`.
-4. Run `npx wrangler dev`.
+4. Run `npx --yes wrangler@4.148.0 dev`.
 
 The worker reads GitHub on demand. It does not create a task database, mirror logs, deploy production, or store credentials in the repository.
 
