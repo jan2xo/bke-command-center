@@ -62,7 +62,11 @@ export function summarizeFailureJobs(run, payload, repo) {
     : candidates.length > 1 ? "MULTIPLE_FAILED_JOBS_CAUSE_UNVERIFIED"
     : !first.first_failed_step ? "JOB_FAILED_STEP_UNAVAILABLE"
     : "FIRST_OBSERVED_FAILED_STEP";
-  const downstream = detail.filter(j => j.downstream_gate && j.conclusion === "failure");
+  // A required gate is downstream only when an independent failed job is
+  // actually observed. An isolated gate failure has UNKNOWN cause.
+  const downstream = independent.length
+    ? detail.filter(j => j.downstream_gate && j.conclusion === "failure")
+    : [];
   const succeeded = detail.filter(j => j.conclusion === "success").slice(0, 8);
   return {
     source: "github_actions", run_id: run.id,
