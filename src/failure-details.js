@@ -75,6 +75,15 @@ export function summarizeFailureJobs(run, payload, repo) {
     observed_at: run.observed_at, head_sha: run.sha,
     run_url: run.url,
     detail_status: diagnostic,
+    observed_boundary: first
+      ? (/relay|cloudflare/i.test(first.name)
+        ? "GitHub CI: Cloudflare relay integration test"
+        : "GitHub CI: " + first.name)
+      : "GitHub Actions workflow (specific job UNKNOWN)",
+    next_action: first
+      ? "Inspect the linked failed GitHub job and its first failing step; verify external service health independently before attribution."
+      : "Inspect the authoritative GitHub run; no failed job and step evidence is available.",
+    owner_state: "UNKNOWN_UNTIL_GITHUB_PR_OR_JOB_OWNERSHIP_EVIDENCE",
     first_observed_failure: first,
     downstream_gate_failures: downstream,
     unaffected_successful_jobs: succeeded,
@@ -90,7 +99,11 @@ export function unavailableFailureJobs(run) {
     source:"github_actions", run_id:run.id, workflow:label(run.name),
     run_conclusion:run.conclusion, classification:status(run.conclusion),
     observed_at:run.observed_at, head_sha:run.sha, run_url:run.url,
-    detail_status:"JOB_EVIDENCE_UNAVAILABLE", first_observed_failure:null,
+    detail_status:"JOB_EVIDENCE_UNAVAILABLE",
+    observed_boundary:"GitHub Actions workflow (jobs unavailable)",
+    owner_state:"UNKNOWN_UNTIL_GITHUB_PR_OR_JOB_OWNERSHIP_EVIDENCE",
+    next_action:"Inspect the authoritative GitHub run after the job API recovers.",
+    first_observed_failure:null,
     downstream_gate_failures:[], unaffected_successful_jobs:[],
     failed_job_count:null, reported_job_count:null, cloudflare_runtime:"UNKNOWN",
     claim_boundary:"GitHub Actions job evidence unavailable; do not infer external-service failure.",
@@ -125,7 +138,10 @@ export function renderFailureDetail(data) {
   return '<h1>Failure diagnosis · GitHub run #' + escape(data.run_id) + '</h1>' +
     '<section><p><b>Workflow:</b> ' + escape(data.workflow) +
     ' · ' + escape(data.classification) + '</p><p><b>Evidence state:</b> ' +
-    escape(data.detail_status) + '</p>' + details +
+    escape(data.detail_status) + '</p>' +
+    '<p><b>Observed failure boundary:</b> ' + escape(data.observed_boundary) +
+    '</p><p><b>Responsible owner:</b> UNKNOWN until assigned by GitHub evidence.</p>' +
+    '<p><b>Next action:</b> ' + escape(data.next_action) + '</p>' + details +
     '<p><a href="' + escape(data.run_url) +
     '" rel="noopener noreferrer" target="_blank">Open authoritative GitHub Actions run</a></p>' +
     '<p class="muted">Source SHA: <code>' + escape(data.head_sha) +
