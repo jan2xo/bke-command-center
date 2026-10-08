@@ -1,18 +1,50 @@
 name: ci
 
+# NORMAL retains current automatic events.
+# NITRO skips those events with [skip ci] on every development commit;
+# workflow_dispatch is the ONLY intended NITRO merge-gate trigger.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Exact Nitro pull request number"
+        required: true
+        type: string
+      expected_head_sha:
+        description: "Exact 40-hex Nitro PR head SHA to certify"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Gate early and fail closed before npm/install/test.
+      # The Actions "Run workflow" selector MUST be the Nitro HEAD BRANCH,
+      # not main. `github.sha` must be exactly the PR source commit.
+      - name: Verify Nitro exact-head merge gate
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NITRO_PR_NUMBER: ${{ inputs.pr_number }}
+          NITRO_EXPECTED_HEAD: ${{ inputs.expected_head_sha }}
+          NITRO_RUN_HEAD: ${{ github.sha }}
+          NITRO_RUN_BRANCH: ${{ github.ref_name }}
+        run: node scripts/nitro-gate.mjs
       - run: npm ci
       - run: npm test
       - run: npm run check
