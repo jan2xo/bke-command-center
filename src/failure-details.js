@@ -32,11 +32,13 @@ export function summarizeFailureJobs(run, payload, repo) {
     if (!j || !Number.isSafeInteger(j.id) || j.id <= 0 || seen.has(j.id) ||
         typeof j.name !== "string" || !j.name.trim() ||
         !["success", "failure", "timed_out", "cancelled", "action_required", "neutral", "skipped", null].includes(j.conclusion) ||
-        !Array.isArray(j.steps) || j.steps.length > MAX_STEPS) {
+        !(Array.isArray(j.steps) || j.steps == null) ||
+        (Array.isArray(j.steps) && j.steps.length > MAX_STEPS)) {
       throw new Error("GITHUB_FAILURE_JOB_INVALID");
     }
     seen.add(j.id);
-    const firstFailed = j.steps.find(s =>
+    // Skipped/cancelled jobs often omit steps altogether.
+    const firstFailed = (j.steps || []).find(s =>
       s && (s.conclusion === "failure" || s.conclusion === "timed_out"));
     return {
       id: j.id,
