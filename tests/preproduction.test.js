@@ -31,6 +31,19 @@ test("Access policy must be operator-verified before serving PREPRODUCTION data"
   }
 });
 
+test("hostname mismatch is denied even with explicit environment and operator latch", async () => {
+  for (const host of ["airstack.jl-bke.com", "other.jl-bke.com", "unexpected.workers.dev", "localhost"]) {
+    const response = await worker.fetch(new Request("https://" + host + "/api/overview"), {
+      BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true",
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {
+      error: "COMMAND_CENTER_HOSTNAME_NOT_APPROVED", state: "LOCKED",
+    });
+  }
+});
+
 test("both explicit PREPRODUCTION and verified-access markers enable route execution", async () => {
   // This is runtime plumbing only. In production the Access edge must be
   // independently tested; the marker is not an authentication mechanism.
