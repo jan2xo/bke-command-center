@@ -39,7 +39,11 @@ export function normalizeDashboardData(repository, open, recent) {
     const unique = new Set(names);
     const conflict = !idValid || unique.size !== labels.length || labels.length > 1;
     const owner = !conflict && labels.length === 1 ? names[0] : null;
-    if (owner) ownerNumbers.set(owner, (ownerNumbers.get(owner) || 0) + 1);
+    // Every label is a potential claim, even on an already-conflicted PR.
+    // Otherwise a second PR sharing one of those labels could false-green.
+    for (const name of unique) {
+      if (ID.test(name)) ownerNumbers.set(name, (ownerNumbers.get(name) || 0) + 1);
+    }
     return {
       number: pr.number,
       title: pr.title,
