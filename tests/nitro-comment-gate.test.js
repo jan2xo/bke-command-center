@@ -36,6 +36,7 @@ for (const [name, mutate, code] of [
   ["collaborator", x => { x.comment.author_association = "COLLABORATOR"; }, "NOT_AUTHORIZED"],
   ["wrong command", x => { x.comment.body = "/certify " + HEAD; }, "FORMAT_INVALID"],
   ["newlines after SHA", x => { x.comment.body += "\nsecond-command"; }, "FORMAT_INVALID"],
+  ["trailing newline", x => { x.comment.body += "\n"; }, "FORMAT_INVALID"],
   ["invalid SHA", x => { x.comment.body = "/nitro-certify " + "BAD"; }, "FORMAT_INVALID"],
   ["missing PR number", x => { x.issue.number = 0; }, "NOT_AUTHORIZED"],
 ]) {
