@@ -12,6 +12,7 @@ compatibility_date = "2026-10-08"
 # Do not expose a public workers.dev endpoint; operator must configure a
 # protected PREPRODUCTION route before live validation.
 workers_dev = false
+preview_urls = false
 
 # PREPRODUCTION-only hostname. This is a CUSTOM DOMAIN: Cloudflare
 # creates the required DNS/TLS once it is attached during deployment.
