@@ -73,6 +73,17 @@ test("multiple plausible failed jobs are not misreported as definitive cause",()
   assert.equal(d.detail_status,"MULTIPLE_FAILED_JOBS_CAUSE_UNVERIFIED");
   assert.equal(d.failed_job_count,3);
 });
+test("cancelled/skipped jobs with null step lists do not hide real failures",()=>{
+  const p=jobs();
+  p.jobs.push({id:10004,name:"Skipped optional job",conclusion:"skipped",steps:null});
+  p.total_count=4;
+  const d=summarizeFailureJobs({
+    id:100,name:"CI",sha:SHA,conclusion:"failure",
+    url:"https://github.com/jan2xo/bke-worker/actions/runs/100",
+  },p,repo.full_name);
+  assert.equal(d.first_observed_failure.id,10001);
+  assert.equal(d.reported_job_count,4);
+});
 test("no jobs means UNKNOWN cause, not platform outage",()=>{
   const d=summarizeFailureJobs({
     id:100,name:"Cancelled",sha:SHA,conclusion:"cancelled",url:"https://github.com/jan2xo/bke-worker/actions/runs/100",
