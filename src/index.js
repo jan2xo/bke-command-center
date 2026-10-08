@@ -1,54 +1,39 @@
-import { createGitHubAdapter, assignmentFromPullRequest } from "./github.js";
-import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRunSummary } from "./core.js";
+import {createGitHubAdapter,assignmentFromPullRequest,collectEvidence} from "./github.js";
+import {SYSTEM_REGISTRY,certificationSummary,buildFailureCapsule,buildPostRunSummary,evidenceMatchesHead} from "./core.js";
 
-const html = (title, body) => `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} · BKE Command Center</title><style>
-body{font:15px system-ui,sans-serif;margin:0;background:#f6f7f9;color:#17181a}main{max-width:1000px;margin:0 auto;padding:28px}
-nav a{margin-right:16px}section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:18px;margin:18px 0}
-code,pre{background:#f0f1f3;padding:2px 5px;border-radius:4px}pre{padding:12px;overflow:auto}
-</style></head><body><main><nav><a href="/">Overview</a><a href="/worker">Worker</a></nav>${body}</main></body></html>`;
+const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+const link=(url,label)=>url?`<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>`:esc(label);
+const html=(title,body)=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · BKE Command Center</title><style>body{font:15px system-ui,sans-serif;margin:0;background:#f6f7f9;color:#17181a}main{max-width:1100px;margin:auto;padding:28px}nav a{margin-right:16px}section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:18px;margin:18px 0}li{margin:6px 0}.pill{display:inline-block;border:1px solid #ccc;border-radius:999px;padding:3px 9px}.muted{color:#667085}code{background:#f0f1f3;padding:2px 5px}</style></head><body><main><nav><a href="/">Overview</a><a href="/worker">Worker</a></nav>${body}</main></body></html>`;
+const list=(items,render)=>items?.length?`<ul>${items.map(render).join("")}</ul>`:"<p class='muted'>None.</p>";
 
-async function workerState(env) {
-  const gh = createGitHubAdapter(env);
-  const repository = await gh.repo();
-  const prs = await Promise.all((await fetch(`https://api.github.com/repos/${env.GITHUB_OWNER || "jan2xo"}/${env.GITHUB_REPO || "bke-worker"}/pulls?state=open&per_page=100`, {headers:{Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"bke-command-center-preproduction",...(env.GITHUB_TOKEN?{Authorization:`Bearer ${env.GITHUB_TOKEN}`}:{})}})).json().then(list => list.filter(pr => (pr.labels||[]).some(l => l.name === "bke-worker:android-worker-a")).map(pr => gh.pullRequest(pr.number))));
-  return {
-    system: SYSTEM_REGISTRY.worker,
-    repository: { full_name: repository.full_name, default_branch: repository.default_branch },
-    assignments: prs.map(assignmentFromPullRequest),
-  };
+export async function workerState(env){
+  const gh=createGitHubAdapter(env),repository=await gh.repo(),open=await gh.openPullRequests();
+  const assignments=open.filter(pr=>(pr.labels||[]).some(l=>l.name==="bke-worker:android-worker-a")).map(assignmentFromPullRequest);
+  return {system:SYSTEM_REGISTRY.worker,repository:{full_name:repository.full_name,default_branch:repository.default_branch},assignments};
 }
 
-async function prState(env, number) {
-  const gh = createGitHubAdapter(env);
-  const pr = await gh.pullRequest(number);
-  const exactHead = pr.head?.sha || null;
-  const checks = exactHead ? (await gh.checks(exactHead)).check_runs || [] : [];
-  const runs = (await gh.workflowRuns()).workflow_runs || [];
-  const workflowEvidence = runs.filter(r => r.head_sha === exactHead);
-  const certification = certificationSummary({exactHead, checks, workflowRuns: workflowEvidence});
-  const assignment = assignmentFromPullRequest(pr);
-  const evidence = workflowEvidence.filter(r => ["failure","cancelled","timed_out","action_required"].includes(String(r.conclusion||"").toLowerCase())).map(r => ({
-    occurred_at:r.updated_at||r.created_at, host:"github_actions", boundary:"github_actions", stage:"workflow",
-    conclusion:r.conclusion, summary:r.name + " " + (r.conclusion||"failed"), evidence_run_ids:[String(r.id)],
-    next_action:"Inspect the earliest failing job for this exact head."
-  }));
-  const first_causal_failure = buildFailureCapsule({repo:pr.base?.repo?.full_name || "jan2xo/bke-worker",pr_number:number,exact_head:exactHead,worker_id:assignment.worker_id,evidence});
+export async function prState(env,number){
+  const gh=createGitHubAdapter(env),pr=await gh.pullRequest(number),exactHead=pr.head?.sha||null,evidence=await collectEvidence(gh,pr,exactHead);
+  const proof=evidence.comments.filter(x=>x.status==="success"||x.status==="failure");
+  const certification=certificationSummary({exactHead,checks:evidence.checks,workflowRuns:evidence.workflowRuns,proof});
+  const assignment=assignmentFromPullRequest(pr);
+  const failures=evidence.jobs.filter(x=>evidenceMatchesHead(x,exactHead)&&["failure","cancelled","timed_out","action_required"].includes(String(x.conclusion||x.status).toLowerCase()));
+  const first_causal_failure=buildFailureCapsule({repo:pr.base?.repo?.full_name||"jan2xo/bke-worker",pr_number:number,exact_head:exactHead,worker_id:assignment.worker_id,evidence:failures});
   return {pr:{number:pr.number,title:pr.title,state:pr.state,draft:pr.draft,html_url:pr.html_url},assignment,certification,first_causal_failure,post_run_summary:buildPostRunSummary({certification,first_causal_failure})};
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    try {
-      if (url.pathname === "/api/worker") return Response.json(await workerState(env));
-      if (url.pathname.startsWith("/api/pr/")) return Response.json(await prState(env, Number(url.pathname.split("/").pop())));
-      if (url.pathname === "/worker") return new Response(html("Worker", "<h1>worker</h1><section><p>Live state is derived from GitHub.</p><p><a href='/api/worker'>Open worker JSON</a></p></section>"), {headers:{"content-type":"text/html;charset=utf-8"}});
-      if (url.pathname.startsWith("/pr/")) return new Response(html("PR", `<h1>PR ${url.pathname.split("/").pop()}</h1><section><a href="/api/pr/${url.pathname.split("/").pop()}">Open live JSON</a></section>`), {headers:{"content-type":"text/html;charset=utf-8"}});
-      return new Response(html("Overview", "<h1>BKE Command Center</h1><section><p>Read-first, preproduction observability for BKE engineering.</p><p><a href='/worker'>worker</a></p></section>"), {headers:{"content-type":"text/html;charset=utf-8"}});
-    } catch (error) {
-      return Response.json({error:error.message, state:"UNKNOWN"}, {status:502});
-    }
-  }
-};
+export function renderPr(state){
+  const f=state.first_causal_failure;
+  return `<h1>PR ${esc(state.pr.number)} — ${esc(state.pr.title)}</h1><section><p><b>Exact head:</b> <code>${esc(state.assignment.exact_head)}</code></p><p><b>Worker:</b> ${esc(state.assignment.worker_id||"UNKNOWN")} · <b>Assignment:</b> ${esc(state.assignment.state)}</p><p><b>Certification:</b> <span class="pill">${esc(state.certification.state)}</span></p><p>${esc(state.post_run_summary)}</p></section><section><h2>First causal failure</h2>${f.boundary?`<p><b>${esc(f.classification)}</b> · ${esc(f.boundary)} · ${esc(f.stage)}</p><p>${esc(f.summary)}</p>`:"<p class='muted'>No causal failure established.</p>"}<h3>Downstream</h3>${list(f.downstream,x=>`<li><b>${esc(x.classification)}</b> · ${esc(x.boundary||"unknown")} — ${esc(x.summary)}</li>`)}<h3>Unaffected</h3>${list(f.unaffected_boundaries,x=>`<li>${esc(x)}</li>`)}</section><section><h2>Evidence</h2>${list(f.evidence,x=>`<li>${link(x.url,x.id||"evidence")}</li>`)}</section>`;
+}
+
+export default {async fetch(request,env){
+  const url=new URL(request.url);
+  try{
+    if(url.pathname==="/api/worker") return Response.json(await workerState(env));
+    if(url.pathname.startsWith("/api/pr/")) return Response.json(await prState(env,Number(url.pathname.split("/").pop())));
+    if(url.pathname==="/worker"){const s=await workerState(env);return new Response(html("Worker",`<h1>worker</h1><section><p>Repository: <code>${esc(s.repository.full_name)}</code></p>${list(s.assignments,x=>`<li>PR ${esc(x.pr_number)} · ${esc(x.worker_id||"UNKNOWN")} · ${esc(x.state)} · <a href="/pr/${esc(x.pr_number)}">open</a></li>`)}</section>`),{headers:{"content-type":"text/html;charset=utf-8"}});}
+    if(url.pathname.startsWith("/pr/")){const s=await prState(env,Number(url.pathname.split("/").pop()));return new Response(html("PR",renderPr(s)),{headers:{"content-type":"text/html;charset=utf-8"}});}
+    return new Response(html("Overview","<h1>BKE Command Center</h1><section><p>Read-first, preproduction observability for BKE engineering.</p><p><a href='/worker'>worker</a></p></section>"),{headers:{"content-type":"text/html;charset=utf-8"}});
+  }catch(error){return Response.json({error:error.message,state:"UNKNOWN"},{status:502});}
+}};
