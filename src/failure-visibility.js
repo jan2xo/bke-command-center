@@ -1,3 +1,4 @@
+import { unknownCloudflareStatus } from "./cloudflare-status.js";
 const MAX_RUNS = 30;
 const SHA = /^[0-9a-f]{40}$/;
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -81,8 +82,16 @@ export function normalizeFailureVisibility(payload, fullName) {
   };
 }
 
-export function renderFailureVisibility(state) {
+export function renderFailureVisibility(state, cloudflarePlatform = unknownCloudflareStatus()) {
   const f = state || unknownFailureVisibility();
+  const cf = cloudflarePlatform || unknownCloudflareStatus();
+  const platformStatus = {
+    OPERATIONAL: "Published global status: operational",
+    MINOR_INCIDENT: "Published global status: minor incident",
+    MAJOR_INCIDENT: "Published global status: major incident",
+    CRITICAL_INCIDENT: "Published global status: critical incident",
+    UNKNOWN: "Published global status: UNKNOWN",
+  }[cf.state] || "Published global status: UNKNOWN";
   const status = {
     FAILURES_OBSERVED: "Recent CI failures detected",
     INTERRUPTIONS_OBSERVED: "Recent CI cancellations detected",
@@ -106,10 +115,13 @@ export function renderFailureVisibility(state) {
     '<p class="muted">Source: GitHub Actions · Window: latest 30 workflow runs · No raw logs fetched.</p>' +
     (rows ? '<ul>' + rows + '</ul>' : "") +
     '<p class="muted">GitHub Actions connection: <b>' +
-      (f.status === "UNKNOWN" ? "UNKNOWN" : "OBSERVED") + '</b> · ' +
-      'Cloudflare account/Worker runtime: <b>UNKNOWN</b> · ' +
-      'Relay connection health: <b>NOT MEASURED</b>. ' +
-      'A failed GitHub relay integration check is not proof of a Cloudflare outage. ' +
+      (f.status === "UNKNOWN" ? "UNKNOWN" : "OBSERVED") + '</b>. ' +
+      'Cloudflare public platform: <b>' + escape(platformStatus) + '</b>' +
+      (cf.description ? ' (' + escape(cf.description) + ')' : '') +
+      ' · <a href="https://www.cloudflarestatus.com" rel="noopener noreferrer" target="_blank">Cloudflare status source</a>. ' +
+      'Cloudflare account/Worker runtime: <b>UNKNOWN</b> · Relay connection: <b>NOT MEASURED</b>. ' +
+      'A GitHub integration test failure is not proof of a Cloudflare outage. ' +
+      'A global Cloudflare incident is not proof this Worker is unhealthy. ' +
       'No incidents in the sampled window does not establish system-wide health.</p>' +
     '</section>';
 }
