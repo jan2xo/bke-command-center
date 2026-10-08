@@ -66,7 +66,7 @@ export function createGitHubAdapter(env) {
     async pullRequest(number) { return github(`/repos/${owner}/${repo}/pulls/${number}`, env); },
     async openPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=open&per_page=100`, env); },
     async recentClosedPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=12`, env); },
-    async recentWorkflowRuns() { return github(`/repos/${owner}/${repo}/actions/runs?per_page=8`, env); },
+    async recentWorkflowRuns() { return github(`/repos/${owner}/${repo}/actions/runs?per_page=30`, env); },
     async pullCommits(number) { return github(`/repos/${owner}/${repo}/pulls/${number}/commits?per_page=100`, env); },
     async checks(ref) { return github(`/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, env); },
     async workflowRuns(event = null) { return github(`/repos/${owner}/${repo}/actions/runs?per_page=100${event ? `&event=${encodeURIComponent(event)}` : ""}`, env); },
