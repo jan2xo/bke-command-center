@@ -1,0 +1,8 @@
+name = "bke-command-center"
+main = "src/index.js"
+compatibility_date = "2026-10-08"
+
+[vars]
+BKE_PREPRODUCTION = "true"
+GITHUB_OWNER = "jan2xo"
+GITHUB_REPO = "bke-worker"
