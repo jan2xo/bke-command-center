@@ -71,6 +71,7 @@ test("custom domain attaches only to the exact named PREPRODUCTION environment",
   assert.doesNotMatch(match[1], /\*/);
   assert.doesNotMatch(config, /\[\[env\.(?:prod|production)\.routes\]\]/);
   assert.match(config, /^workers_dev = false$/m);
+  assert.match(config, /^preview_urls = false$/m);
   assert.doesNotMatch(config, /^BKE_ACCESS_POLICY_VERIFIED\s*=/m,
     "access verification marker must be an encrypted PREPRODUCTION secret");
   assert.doesNotMatch(config, /^GITHUB_TOKEN\s*=/m,
