@@ -19,41 +19,43 @@ export function evidenceMatchesHead(item, exactHead) {
   return heads.includes(exactHead);
 }
 
-export function certificationSummary({exactHead,checks=[],workflowRuns=[],proof=[]}) {
+export function certificationSummary({exactHead,checks=[],workflowRuns=[],proof=[],requiredProof=[]}) {
   const relevant=[...checks,...workflowRuns,...proof].filter(x=>evidenceMatchesHead(x,exactHead));
-  if(!relevant.length) return {exact_head:exactHead,checks_seen:0,workflow_runs_seen:0,proof_seen:0,failures:0,pending:0,state:"UNKNOWN",reason:"NO_EVIDENCE"};
-  const failures=relevant.filter(x=>FAILURE_STATES.has(normalizeStatus(x.conclusion||x.status)));
-  const pending=relevant.filter(x=>PENDING_STATES.has(normalizeStatus(x.conclusion||x.status)));
-  const positive=relevant.filter(x=>POSITIVE_STATES.has(normalizeStatus(x.conclusion||x.status)));
+  const required=requiredProof.filter(x=>evidenceMatchesHead(x,exactHead));
+  const failures=required.filter(x=>FAILURE_STATES.has(normalizeStatus(x.conclusion||x.status)));
+  const pending=required.filter(x=>PENDING_STATES.has(normalizeStatus(x.conclusion||x.status)));
+  const positive=required.filter(x=>POSITIVE_STATES.has(normalizeStatus(x.conclusion||x.status)));
+  const observedFailures=relevant.filter(x=>FAILURE_STATES.has(normalizeStatus(x.conclusion||x.status)));
   return {
-    exact_head:exactHead,
-    checks_seen:checks.filter(x=>evidenceMatchesHead(x,exactHead)).length,
+    exact_head:exactHead,checks_seen:checks.filter(x=>evidenceMatchesHead(x,exactHead)).length,
     workflow_runs_seen:workflowRuns.filter(x=>evidenceMatchesHead(x,exactHead)).length,
     proof_seen:proof.filter(x=>evidenceMatchesHead(x,exactHead)).length,
-    failures:failures.length,pending:pending.length,positive:positive.length,
+    required_seen:required.length,failures:failures.length,pending:pending.length,positive:positive.length,
+    observed_failures:observedFailures.length,
     state:failures.length?"FAILED":pending.length?"PENDING":positive.length?"PASSED":"UNKNOWN",
-    reason:positive.length?null:"NO_POSITIVE_PROOF"
+    reason:failures.length?"REQUIRED_CERTIFICATION_FAILED":pending.length?"REQUIRED_CERTIFICATION_PENDING":positive.length?null:"NO_REQUIRED_CERTIFICATION_PROOF"
   };
 }
 
 export function reduceFirstCausalFailure(evidence=[]) {
   const failures=evidence.filter(x=>FAILURE_STATES.has(normalizeStatus(x.conclusion||x.status)));
-  if(!failures.length) return {causal:null,downstream:[],unaffected:[]};
+  const positive=evidence.filter(x=>POSITIVE_STATES.has(normalizeStatus(x.conclusion||x.status)));
+  if(!failures.length) return {causal:null,downstream:[],unaffected:[...new Set(positive.map(x=>x.boundary).filter(Boolean))]};
   const ordered=[...failures].sort((a,b)=>String(a.occurred_at||"").localeCompare(String(b.occurred_at||"")));
-  const causal=ordered.find(x=>x.causal!==false)||ordered[0];
+  const causal=ordered.find(x=>x.causal===true)||ordered[0];
   return {
     causal:{...causal,classification:"CAUSAL"},
     downstream:ordered.filter(x=>x!==causal).map(x=>({...x,classification:"DOWNSTREAM"})),
-    unaffected:evidence.filter(x=>POSITIVE_STATES.has(normalizeStatus(x.conclusion||x.status))).map(x=>x.boundary).filter(Boolean)
+    unaffected:[...new Set(positive.map(x=>x.boundary).filter(Boolean))]
   };
 }
 
 export function buildPostRunSummary(state) {
   const f=state.first_causal_failure?.causal;
   if(f) return `First causal failure: ${f.summary}. Next: ${f.next_action||"inspect the causal evidence"}`;
-  if(state.certification?.state==="PENDING") return "Certification is still in progress.";
-  if(state.certification?.state==="PASSED") return "Required observed checks passed for the exact PR head.";
-  if(state.certification?.state==="FAILED") return "Required evidence contains a failure for the exact PR head.";
+  if(state.certification?.state==="PENDING") return "Required certification is still in progress.";
+  if(state.certification?.state==="PASSED") return "Required certification passed for the exact PR head.";
+  if(state.certification?.state==="FAILED") return "Required certification failed for the exact PR head.";
   return "Current engineering state is UNKNOWN.";
 }
 
