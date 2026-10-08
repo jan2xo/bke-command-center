@@ -4,7 +4,7 @@ import { normalizeCloudflareStatus, unknownCloudflareStatus, cloudflarePublicSta
 import { normalizeFailureVisibility, renderFailureVisibility } from "../src/failure-visibility.js";
 import { dashboardState, renderDashboard } from "../src/dashboard.js";
 
-const known={page:{id:"yh6f0r4529hb",updated_at:"2026-10-08T13:40:00Z"},
+const known={page:{id:"yh6f0r4529hb",updated_at:new Date().toISOString()},
   status:{indicator:"major",description:"Partial System Outage"}};
 const repo={full_name:"jan2xo/bke-worker",default_branch:"main"};
 const run={id:88,name:"Cloudflare relay CI",head_sha:"a".repeat(40),
@@ -25,6 +25,41 @@ test("Cloudflare public status is a GLOBAL signal, not project Worker health",()
   assert.match(rendered,/Published global status: major incident/);
   assert.match(rendered,/Worker runtime: <b>UNKNOWN/);
   assert.match(rendered,/not proof this Worker is unhealthy/);
+});
+test("stale major outage is UNKNOWN with timestamp retained, not presented as current",()=>{
+  const old="2026-08-27T00:00:00Z";
+  const d=normalizeCloudflareStatus({...known,page:{...known.page,updated_at:old}});
+  assert.equal(d.state,"UNKNOWN");
+  assert.equal(d.reason,"PUBLIC_STATUS_STALE");
+  assert.equal(d.observed_at,old);
+  assert.equal(d.indicator,null);
+  const html=renderFailureVisibility(normalizeFailureVisibility({workflow_runs:[run]},repo.full_name),d);
+  assert.match(html,/Published global status: UNKNOWN/);
+  assert.match(html,/STALE PUBLIC STATUS: older than 24 hours/);
+  assert.doesNotMatch(html,/Published global status: major incident/);
+  assert.match(html,/Recent CI failures detected/);
+});
+test("stale operational green is UNKNOWN, never false healthy",()=>{
+  const old=new Date(Date.now()-48*3600*1000).toISOString();
+  const d=normalizeCloudflareStatus({...known,page:{...known.page,updated_at:old},
+    status:{indicator:"none",description:"All Systems Operational"}});
+  assert.equal(d.state,"UNKNOWN");
+  assert.equal(d.reason,"PUBLIC_STATUS_STALE");
+});
+test("future-dated provider snapshot is UNKNOWN and visibly flagged",()=>{
+  const future=new Date(Date.now()+6*60*1000).toISOString();
+  const d=normalizeCloudflareStatus({...known,page:{...known.page,updated_at:future}});
+  assert.equal(d.state,"UNKNOWN");
+  assert.equal(d.reason,"PUBLIC_STATUS_FUTURE_TIMESTAMP");
+  assert.match(renderFailureVisibility(normalizeFailureVisibility({workflow_runs:[run]},repo.full_name),d),/INVALID FUTURE STATUS TIMESTAMP/);
+});
+test("deterministic age boundaries allow 24h old status and 5 minute future skew",()=>{
+  const now=Date.parse("2026-10-09T00:00:00.000Z");
+  const atAge=normalizeCloudflareStatus({...known,page:{...known.page,updated_at:new Date(now-24*3600*1000).toISOString()}},now);
+  const atFuture=normalizeCloudflareStatus({...known,page:{...known.page,updated_at:new Date(now+5*60*1000).toISOString()}},now);
+  assert.equal(atAge.state,"MAJOR_INCIDENT");
+  assert.equal(atFuture.state,"MAJOR_INCIDENT");
+  assert.equal(atAge.reason,null);
 });
 test("normal operational global state does not imply local Worker healthy",()=>{
   const d=normalizeCloudflareStatus({...known,status:{indicator:"none",description:"All Systems Operational"}});
@@ -56,6 +91,14 @@ test("Cloudflare outage never suppresses GitHub Actions failure overview",async(
   assert.deepEqual(d.cloudflare_platform,unknownCloudflareStatus());
   assert.doesNotMatch(JSON.stringify(d),/offline_secret_token/);
   assert.match(renderDashboard(d),/Published global status: UNKNOWN/);
+});
+test("stale public provider status does not suppress valid GitHub failure diagnosis",async()=>{
+  const gh={...make(),cloudflarePlatformStatus:async()=>normalizeCloudflareStatus({
+    ...known,page:{...known.page,updated_at:"2026-08-27T00:00:00Z"}})};
+  const data=await dashboardState(gh);
+  assert.equal(data.cloudflare_platform.state,"UNKNOWN");
+  assert.equal(data.failure_visibility.status,"FAILURES_OBSERVED");
+  assert.match(renderDashboard(data),/STALE PUBLIC STATUS/);
 });
 test("GitHub Actions outage never suppresses independent Cloudflare global status",async()=>{
   const gh={...make(),recentWorkflowRuns:async()=>{throw Error("api unavailable");}};
