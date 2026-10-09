@@ -65,3 +65,49 @@ If the hostname or policy is wrong, **disable/remove the Worker Custom Domain** 
 - [Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
 - [Worker Preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
+
+
+## B1 — prove the human-created scoped Cloudflare deployment token (read-only)
+
+The operator has **already created** the Cloudflare token and attested that its UI role is
+**Specified Workers → Editor → only `bke-command-center-preproduction`**, with no expiry
+by explicit operator decision. **Do not create another token.** Token value stays in
+the human's terminal; never paste it into ChatGPT, GitHub, PR comments, CI or artifacts.
+
+From a trusted local checkout of the repository, run **one command**:
+
+```bash
+npm run cloudflare:verify-deploy-token
+```
+
+The repository-owned verifier prompts for the **existing** account-owned API token
+through a no-echo interactive terminal (never a command-line argument, environment
+variable, or saved file). It makes exactly these read-only Cloudflare API requests
+using the **same pasted token**:
+
+1. `GET /accounts/{account_id}/tokens/verify`: account token must be ACTIVE.
+2. `GET /accounts/{account_id}/workers/scripts/bke-command-center-preproduction/settings`:
+   exact target Worker must be readable.
+3. `GET /accounts/{account_id}/workers/scripts/bke-worker-relay-preproduction/settings`
+   and `bke-air-stack-site/settings`: independently known unrelated Workers must
+   deny read access (403, or existence-hiding 404).
+
+It **fails closed** on 401, 5xx, errors, missing target, malformed responses,
+unexpected exposure of another Worker, or any noninteractive execution. It neither
+prints the bearer credential nor the API responses. Only fixed non-secret PASS/BLOCKED
+codes may be recorded in GitHub Issue #20 and parent #5; redact terminal history or
+screenshots as normal. If the known unrelated Workers change identities, update and
+recertify the verifier before relying on its evidence.
+
+**Boundary of this proof:** It establishes active token authentication and its
+Worker-specific *read* boundary, not effective write/deploy authority. `Editor`
+remains human UI-attested. It does NOT switch the currently connected Cloudflare
+integration or historical Wrangler deployments to use this token, and it performs
+**no upload, secret write, version promotion, route mutation or production action**.
+A later narrowly authorized PREPRODUCTION deployment must separately prove the
+deployment executor actually used this token (with named Worker lock and before/
+after deployment provenance); do not mark that gate PASS from token creation alone.
+
+A previous Cloudflare integration returned `Invalid API Token` when calling
+the verification endpoints. This is a limitation of that **different integration
+credential**, not evidence about the token entered privately into this command.
