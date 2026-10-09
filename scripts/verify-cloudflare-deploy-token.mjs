@@ -109,7 +109,7 @@ export async function verifyScopedToken(token, {
   });
 }
 
-async function promptSecretFromTty() {
+export async function promptSecretFromTty() {
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
     reject("HUMAN_TTY_REQUIRED");
   }
