@@ -150,18 +150,24 @@ function latestHeadBeforeComment(comments, commits, certifyComment) {
       const candidate = matches.map((m) => m[1]).reverse().find((sha) => commitHeads.has(sha));
       return candidate ? { sha: candidate, at: timestamp(comment.created_at) } : null;
     })
-    .filter(Boolean)
-    .sort((a, b) => b.at - a.at);
-  if (ledgerCandidates.length) return ledgerCandidates[0].sha;
+    .filter(Boolean);
 
   const commitCandidates = (commits || [])
     .map((commit) => ({
       sha: commit.sha,
       at: timestamp(commit.commit?.committer?.date || commit.commit?.author?.date),
     }))
-    .filter((x) => x.sha && x.at !== null && x.at <= cutoff)
+    .filter((x) => x.sha && x.at !== null && x.at <= cutoff);
+
+  // A stale ledger marker must not override later commit evidence.
+  // Order all pre-command observations chronologically. If two distinct
+  // heads share the latest timestamp, fail closed rather than guessing.
+  const candidates = [...ledgerCandidates, ...commitCandidates]
     .sort((a, b) => b.at - a.at);
-  return commitCandidates[0]?.sha || null;
+  if (!candidates.length) return null;
+  const latest = candidates[0];
+  if (candidates.some((item) => item.at === latest.at && item.sha !== latest.sha)) return null;
+  return latest.sha;
 }
 
 export function correlateCertificationRuns({ pr, comments = [], commits = [], runs = [], exactHead }) {
