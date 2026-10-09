@@ -81,7 +81,8 @@ test("API PR errors remain machine-readable and no-store", async () => {
   });
 });
 test("homepage upstream faults do not masquerade as healthy PR assignment", async () => {
-  const gh = { repo: async () => { throw new Error("AUTHORIZATION: Bearer DO-NOT-LEAK"); } };
+  const gh = { repo: async () => { throw new Error("AUTHORIZATION: Bearer DO-NOT-LEAK"); },
+    openPullRequests: async () => [], recentClosedPullRequests: async () => [] };
   const res = await handleRequest(new Request("https://cc.jl-bke.com/"), {}, () => gh);
   assert.equal(res.status, 502);
   const body = await res.text();
