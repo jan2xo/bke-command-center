@@ -28,7 +28,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The default pull_request checkout is refs/pull/N/merge, NOT the PR head.
+          # Certify the literal source head required by BKE's SHA-locked merge gate.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify PR source checkout is exact head
+        if: github.event_name == 'pull_request'
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
