@@ -26,7 +26,7 @@ const html = (title, body) => '<!doctype html><html lang="en"><head><meta charse
   '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' +
   esc(title) + ' · BKE Command Center</title>' + shellCss +
   '</head><body><nav><a href="/">BKE Command Center</a><a href="/">Overview</a>' +
-  '<a href="/worker">Worker</a></nav><main>' + body + '</main></body></html>';
+  '<a href="/worker">Worker</a><a href="/github-quota">GitHub API budget</a></nav><main>' + body + '</main></body></html>';
 const noStoreHeaders = { "content-type": "text/html;charset=utf-8", "Cache-Control": "no-store" };
 const noStoreJson = (value, status = 200) => Response.json(value, {
   status, headers: { "Cache-Control": "no-store" },
