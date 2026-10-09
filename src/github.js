@@ -79,6 +79,7 @@ export function createGitHubAdapter(env) {
   const repo = env.GITHUB_REPO || "bke-worker";
   return {
     async repo() { return github(`/repos/${owner}/${repo}`, env, "REPOSITORY"); },
+    async rateLimit() { return github("/rate_limit", env, "RATE_LIMIT_PROBE"); },
     async pullRequest(number) { return github(`/repos/${owner}/${repo}/pulls/${number}`, env, "PR_DETAIL"); },
     async openPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=open&per_page=100`, env, "OPEN_PRS"); },
     async recentClosedPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=12`, env, "CLOSED_PRS"); },

@@ -3,6 +3,7 @@ import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRu
 import { dashboardState, renderDashboard } from "./dashboard.js";
 import { failureDetailState, renderFailureDetail } from "./failure-details.js";
 import { evidenceFailure } from "./github-evidence-error.js";
+import { githubQuotaState } from "./github-quota.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -25,7 +26,7 @@ const html = (title, body) => '<!doctype html><html lang="en"><head><meta charse
   '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' +
   esc(title) + ' · BKE Command Center</title>' + shellCss +
   '</head><body><nav><a href="/">BKE Command Center</a><a href="/">Overview</a>' +
-  '<a href="/worker">Worker</a></nav><main>' + body + '</main></body></html>';
+  '<a href="/worker">Worker</a><a href="/github-quota">GitHub API budget</a></nav><main>' + body + '</main></body></html>';
 const noStoreHeaders = { "content-type": "text/html;charset=utf-8", "Cache-Control": "no-store" };
 const noStoreJson = (value, status = 200) => Response.json(value, {
   status, headers: { "Cache-Control": "no-store" },
@@ -121,6 +122,22 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
       const state = await prState(env, prNumber, gh);
       if (!failureJobIds(state).has(jobId)) return noStoreJson({ error: "job is not failure evidence for this exact PR state" }, 404);
       return noStoreJson(await gh.jobFailureExcerpt(jobId));
+    }
+    // On-demand only: no quota request is made by overview/PR/worker pages.
+    // GitHub rate-limit is not proof of repository permissions or worker health.
+    if (url.pathname === "/api/github-quota") {
+      return noStoreJson(await githubQuotaState(gh, env));
+    }
+    if (url.pathname === "/github-quota") {
+      const q = await githubQuotaState(gh, env);
+      return page("GitHub API budget", '<h1>GitHub API budget</h1><section>' +
+        '<p><b>Primary quota:</b> ' + esc(q.core.remaining) +
+        ' remaining of ' + esc(q.core.limit) +
+        ' · <b>Reset:</b> ' + esc(q.core.resets_at) + '</p>' +
+        '<p><b>Encrypted GitHub credential:</b> ' + esc(q.credential) +
+        ' · <b>Repository permissions:</b> NOT VERIFIED</p>' +
+        '<p class="muted">This on-demand GitHub quota observation is not proof of worker liveness, PR certification or credential scope. No token value is displayed.</p>' +
+        '</section>');
     }
     if (url.pathname === "/api/overview") return noStoreJson(await dashboardState(gh));
     if (url.pathname === "/api/worker") return noStoreJson(await workerState(env, gh));
