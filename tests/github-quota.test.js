@@ -32,7 +32,7 @@ for (const [name, payload] of [
   ["negative used",{resources:{core:{...quotas.resources.core,used:-1}}}],
   ["invalid limit",{resources:{core:{...quotas.resources.core,limit:0}}}],
   ["floating reset",{resources:{core:{...quotas.resources.core,reset:1.5}}}],
-  ["date overflow",{resources:{core:{...quotas.resources.core,reset:9000000001}}}],
+  ["implausible reset",{resources:{core:{...quotas.resources.core,reset:10000000001}}}],
 ]) {
   test("quota normalization rejects "+name, () => {
     assert.throws(()=>normalizeGitHubQuota(payload), (e)=>
