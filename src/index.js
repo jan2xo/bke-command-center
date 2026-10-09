@@ -2,6 +2,7 @@ import { createGitHubAdapter, assignmentFromPullRequest, collectEvidence } from 
 import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRunSummary } from "./core.js";
 import { dashboardState, renderDashboard } from "./dashboard.js";
 import { failureDetailState, renderFailureDetail } from "./failure-details.js";
+import { evidenceFailure } from "./github-evidence-error.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -134,10 +135,29 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
     }
     if (url.pathname === "/") return page("Overview", renderDashboard(await dashboardState(gh)));
     return noStoreJson({ error: "ROUTE_NOT_FOUND" }, 404);
-  } catch {
-    // Upstream error text can contain private GitHub information; do not
-    // reflect it into a public response when the protected ingress is absent.
-    return noStoreJson({ error: "GITHUB_EVIDENCE_UNAVAILABLE", state: "UNKNOWN" }, 502);
+  } catch (error) {
+    // The category/boundary come only from a trusted local allowlist.
+    // Never surface an upstream exception, response body, URL or credential.
+    const diagnosis = evidenceFailure(error);
+    const result = {
+      error: "GITHUB_EVIDENCE_UNAVAILABLE",
+      state: "UNKNOWN",
+      ...diagnosis,
+    };
+    if (url.pathname.startsWith("/api/")) return noStoreJson(result, 502);
+    const rateLimit = diagnosis.failure_class === "RATE_LIMIT";
+    const explanation = rateLimit
+      ? "GitHub refused a request at its API rate-limit boundary. Evidence cannot be certified until access is restored."
+      : "GitHub evidence could not be verified for this page. No ownership, certification or worker-liveness conclusion can be made.";
+    return new Response(html("GitHub evidence unavailable",
+      '<h1>GitHub evidence temporarily unavailable</h1><section>' +
+      '<p><b>Evidence state:</b> UNKNOWN</p>' +
+      '<p><b>Source:</b> GitHub · <b>Failure class:</b> ' + esc(diagnosis.failure_class) +
+      ' · <b>Read boundary:</b> ' + esc(diagnosis.boundary) + '</p>' +
+      '<p>' + esc(explanation) + '</p>' +
+      '<p><a href="/">Return to overview</a></p>' +
+      '<p class="muted">No cached data, secret values or unverified claims are displayed.</p>' +
+      '</section>'), { status: 502, headers: noStoreHeaders });
   }
 }
 

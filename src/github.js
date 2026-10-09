@@ -1,3 +1,4 @@
+import { GitHubEvidenceError, statusFailure } from "./github-evidence-error.js";
 import { boundaryFromJobName, stageFromStep, extractFailureExcerpt, normalizeStatus } from "./core.js";
 import { cloudflarePublicStatus } from "./cloudflare-status.js";
 
@@ -15,11 +16,25 @@ function headers(env) {
   return value;
 }
 
-async function github(path, env) {
-  const response = await fetch(`${API}${path}`, { headers: headers(env) });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`GitHub ${response.status}: ${body.message || "request failed"}`);
-  return body;
+async function github(path, env, boundary = "UNKNOWN") {
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, { headers: headers(env) });
+  } catch {
+    throw new GitHubEvidenceError("TRANSPORT", boundary);
+  }
+  if (!response.ok) {
+    throw statusFailure(
+      response.status,
+      response.headers?.get("x-ratelimit-remaining"),
+      boundary,
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new GitHubEvidenceError("INVALID_RESPONSE", boundary);
+  }
 }
 
 async function readBoundedText(response, maxBytes = MAX_LOG_BYTES) {
@@ -63,17 +78,17 @@ export function createGitHubAdapter(env) {
   const owner = env.GITHUB_OWNER || "jan2xo";
   const repo = env.GITHUB_REPO || "bke-worker";
   return {
-    async repo() { return github(`/repos/${owner}/${repo}`, env); },
-    async pullRequest(number) { return github(`/repos/${owner}/${repo}/pulls/${number}`, env); },
-    async openPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=open&per_page=100`, env); },
-    async recentClosedPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=12`, env); },
-    async recentWorkflowRuns() { return github(`/repos/${owner}/${repo}/actions/runs?per_page=30`, env); },
+    async repo() { return github(`/repos/${owner}/${repo}`, env, "REPOSITORY"); },
+    async pullRequest(number) { return github(`/repos/${owner}/${repo}/pulls/${number}`, env, "PR_DETAIL"); },
+    async openPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=open&per_page=100`, env, "OPEN_PRS"); },
+    async recentClosedPullRequests() { return github(`/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=12`, env, "CLOSED_PRS"); },
+    async recentWorkflowRuns() { return github(`/repos/${owner}/${repo}/actions/runs?per_page=30`, env, "RECENT_WORKFLOWS"); },
     async cloudflarePlatformStatus() { return cloudflarePublicStatus(); },
-    async pullCommits(number) { return github(`/repos/${owner}/${repo}/pulls/${number}/commits?per_page=100`, env); },
-    async checks(ref) { return github(`/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, env); },
-    async workflowRuns(event = null) { return github(`/repos/${owner}/${repo}/actions/runs?per_page=100${event ? `&event=${encodeURIComponent(event)}` : ""}`, env); },
-    async workflowJobs(runId) { return github(`/repos/${owner}/${repo}/actions/runs/${runId}/jobs?per_page=100`, env); },
-    async issueComments(number) { return github(`/repos/${owner}/${repo}/issues/${number}/comments?per_page=100`, env); },
+    async pullCommits(number) { return github(`/repos/${owner}/${repo}/pulls/${number}/commits?per_page=100`, env, "PR_COMMITS"); },
+    async checks(ref) { return github(`/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, env, "COMMIT_CHECKS"); },
+    async workflowRuns(event = null) { return github(`/repos/${owner}/${repo}/actions/runs?per_page=100${event ? `&event=${encodeURIComponent(event)}` : ""}`, env, "WORKFLOW_RUNS"); },
+    async workflowJobs(runId) { return github(`/repos/${owner}/${repo}/actions/runs/${runId}/jobs?per_page=100`, env, "WORKFLOW_JOBS"); },
+    async issueComments(number) { return github(`/repos/${owner}/${repo}/issues/${number}/comments?per_page=100`, env, "PR_COMMENTS"); },
     async jobFailureExcerpt(jobId) {
       const first = await fetch(`${API}/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`, {
         headers: headers(env),
