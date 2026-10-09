@@ -3,7 +3,6 @@
  * Human-only, read-only proof for the existing BKE Command Center Cloudflare API token.
  * Never paste or persist a token into GitHub, chat, shell arguments or a CI environment.
  */
-import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
