@@ -41,6 +41,16 @@
 9. Confirm no routine page load fetches job logs; foreign/old job IDs receive 404, sensitive upstream messages do not leak, and no dashboard outage blocks GitHub operations.
 10. Record non-secret Access denial and authorized access evidence, deployment/version/commit, checks, and rollback in issue #5. Only close the issue when B1–B3 and C1–C3 are truly satisfied.
 
+## GitHub API rate-limit recovery (B1)
+
+If protected `/pr/:id` or `/` reports `RATE_LIMIT` at a GitHub REST read boundary, the Cloudflare Worker may be exhausting GitHub's anonymous API quota. The Command Center code already supports `GITHUB_TOKEN` through an Authorization header, but the binding **does not exist until explicitly provisioned by a human operator**.
+
+1. Human GitHub repo owner creates a **fine-grained, read-only, short-lived** PAT for **only `jan2xo/bke-worker`**. Grant Actions read, Checks read, Issues read and Pull requests read, with Metadata read implicitly. No write/admin access.
+2. Human operator puts the value as a Cloudflare **encrypted Secret** `GITHUB_TOKEN` under **only `bke-command-center-preproduction`** (Workers & Pages → Worker → Settings → Variables and Secrets), not a Wrangler plaintext variable. Never share the token with ChatGPT or PR comments.
+3. Secret updates can create a new deployment/version. Before promoting/releasing, verify the exact scoped Access policy, preserved `BKE_ACCESS_POLICY_VERIFIED` secret, disabled workers.dev/preview and correct `cc.jl-bke.com` domain. The operator remains responsible for any required GitHub authentication/MFA.
+4. Open protected `/github-quota` manually. The page queries GitHub `/rate_limit` **on demand** and shows observed remaining/total primary REST quota plus `CONFIGURED`/ `ABSENT`. Configured is NOT evidence that the token has sufficient repo read permissions.
+5. Read live `/pr/82`, `/worker`, `/`, and at least one exact-head CI evidence route. Do not cache certification verdicts or infer Linux Worker liveness from ownership labels. If Access or GitHub read fails, leave B1/C1/C3 open and fail closed.
+
 ## Rollback
 
 If the hostname or policy is wrong, **disable/remove the Worker Custom Domain** for `cc.jl-bke.com` in Cloudflare and revoke release secrets if needed. Do not remove the shared `jl-bke.com` zone or alter `airstack.jl-bke.com`. Record the action in issue #5. Treat any suspected unauthenticated data exposure as a security incident requiring human operator review.
