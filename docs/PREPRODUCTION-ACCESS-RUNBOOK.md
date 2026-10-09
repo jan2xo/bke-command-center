@@ -111,3 +111,62 @@ after deployment provenance); do not mark that gate PASS from token creation alo
 A previous Cloudflare integration returned `Invalid API Token` when calling
 the verification endpoints. This is a limitation of that **different integration
 credential**, not evidence about the token entered privately into this command.
+
+
+## B1 — separately attributable NON-LIVE version upload (operator controlled)
+
+After **live** token-scope verifier PASS, the remaining B1 question is whether the
+operator's **already created restricted API token** can execute an actual Worker
+Editor write *without* giving the Cloudflare app connector global deployment access.
+This step uploads a version only. It is **not** a traffic deployment or a production
+release. No route/custom-domain permissions are requested.
+
+The human operator decides if/when to do the upload. From a local clone of
+`jan2xo/bke-command-center` updated to clean current `main`, with human
+GitHub/Cloudflare authentication already established where necessary:
+
+```sh
+git pull --ff-only origin main
+npm run cloudflare:stage-scoped-version
+```
+
+The command requires an **interactive TTY** and the explicit confirmation
+`STAGE PREPRODUCTION`. It then prompts for the **same existing Cloudflare token**
+without echo; do not put it into argv, a plaintext file, CI, GitHub or ChatGPT.
+
+Its fail-closed preflights require:
+- the local checkout to be clean `main`, with origin exactly
+  `jan2xo/bke-command-center`, and `HEAD` equal to the *live remote* `main`;
+- named Wrangler `preproduction`, intended `cc.jl-bke.com` custom domain,
+  disabled workers.dev and preview, and PREPRODUCTION marker in local config;
+- the supplied **account token** verified active, target Worker settings readable,
+  both known unrelated Workers' settings denied;
+- exact target's encrypted `GITHUB_TOKEN` and
+  `BKE_ACCESS_POLICY_VERIFIED` binding names/types present, plus PREPRODUCTION
+  marker; public Worker subdomain and preview disabled;
+- one existing 100%-serving Cloudflare version, recorded as a rollback anchor.
+
+Only after those checks the command invokes pinned Wrangler
+`versions upload --env preproduction --keep-vars`, with the token temporarily in
+**the child process environment** (Wrangler's supported authentication boundary).
+This is the only Cloudflare write; unlike normal `wrangler deploy`, uploading a
+version **does not** promote it, change the custom domain, change routes, or switch
+traffic. CLI output is captured and not echoed to avoid leaking sensitive data;
+errors are reduced to static codes. The token never enters the process command line.
+
+After upload, the script reads Cloudflare versions/deployments again and emits a
+strictly nonsecret proof capsule **only if** it sees exactly one new
+`source=wrangler` version and the **same original serving deployment/version at
+100%**. Ambiguity => BLOCKED, **do not retry blindly**: inspect Cloudflare
+deployments and versions as human operator before any further action.
+
+`BKE_B1_SCOPED_VERSION_UPLOAD=PASS` establishes the restricted token can
+perform a real **version-upload write** and identifies the staged version, but
+**does not prove that staged version is serving traffic** or that earlier
+deployments used this credential. Keep B1's final traffic-promotion/actual
+deployment-identity proof OPEN pending an independently authorized and
+SHA-pinned PREPRODUCTION promotion with protected Access re-acceptance.
+
+**Production remains locked**. Do not use `wrangler deploy` default or modify
+`airstack.jl-bke.com`. This command never reads or writes secret values, never
+logs the bearer token, and never touches other Workers.
