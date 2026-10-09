@@ -51,6 +51,10 @@ If protected `/pr/:id` or `/` reports `RATE_LIMIT` at a GitHub REST read boundar
 4. Open protected `/github-quota` manually. The page queries GitHub `/rate_limit` **on demand** and shows observed remaining/total primary REST quota plus `CONFIGURED`/ `ABSENT`. Configured is NOT evidence that the token has sufficient repo read permissions.
 5. Read live `/pr/82`, `/worker`, `/`, and at least one exact-head CI evidence route. Do not cache certification verdicts or infer Linux Worker liveness from ownership labels. If Access or GitHub read fails, leave B1/C1/C3 open and fail closed.
 
+## On-demand recent failed-job excerpts (C2)
+
+From the protected `cc.jl-bke.com` homepage choose a recent failed GitHub Actions run in the **latest 30** and click *Inspect failing steps*, then *View bounded failed-job excerpt (on demand)*. The second action revalidates the run and its selected first failed job before fetching at most 256 KiB; UI/API responses return no more than 12 lines of 220 characters and redact known credential patterns. If the run falls out of the sample or jobs cannot be validated, the endpoint fails closed; do not modify current PR evidence or create a new failing CI workflow for this acceptance. Record the run ID, job ID and observed response status, but never include secrets or raw job logs in GitHub issue comments. Follow the GitHub job link for authoritative full details if needed.
+
 ## Rollback
 
 If the hostname or policy is wrong, **disable/remove the Worker Custom Domain** for `cc.jl-bke.com` in Cloudflare and revoke release secrets if needed. Do not remove the shared `jl-bke.com` zone or alter `airstack.jl-bke.com`. Record the action in issue #5. Treat any suspected unauthenticated data exposure as a security incident requiring human operator review.
