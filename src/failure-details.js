@@ -123,13 +123,54 @@ export async function failureDetailState(gh, runId) {
   }
 }
 
+
+/**
+ * Read one already-observed failed job only after bounded GitHub Actions
+ * incident and job-membership checks. Never use the current PR certificate
+ * context to authorize a historical run's log.
+ */
+export async function recentFailureExcerptState(gh, runId, jobId) {
+  if (!Number.isSafeInteger(runId) || runId <= 0 ||
+      !Number.isSafeInteger(jobId) || jobId <= 0) return null;
+  const detail = await failureDetailState(gh, runId);
+  if (!detail || detail.detail_status === "JOB_EVIDENCE_UNAVAILABLE") return null;
+  const job = detail.first_observed_failure;
+  if (!job || job.id !== jobId ||
+      !["failure", "timed_out"].includes(job.conclusion)) return null;
+  // An upstream log fetch is permitted ONLY for the selected failed job.
+  const result = await gh.jobFailureExcerpt(jobId);
+  const lines = Array.isArray(result?.excerpt) ? result.excerpt : [];
+  if (lines.length > 12 || lines.some(x => typeof x !== "string")) {
+    throw new Error("BOUNDED_FAILURE_EXCERPT_INVALID");
+  }
+  const excerpt = lines.map(x => label(x).slice(0, 220));
+  return {
+    source: "github_actions",
+    state: "BOUNDED_HISTORICAL_RUN_EVIDENCE",
+    scope: "LATEST_30_FIRST_OBSERVED_FAILED_JOB_ONLY",
+    run_id: runId,
+    job_id: jobId,
+    run_head_sha: detail.head_sha,
+    found: result?.found === true,
+    truncated: result?.truncated === true ||
+      lines.some((line) => line.length > 220),
+    excerpt,
+    attribution: "OBSERVED_GITHUB_JOB_STEP_NOT_EXTERNAL_ROOT_CAUSE",
+    current_pr_certification: "NOT_ASSERTED",
+    worker_runtime: "UNKNOWN",
+  };
+}
+
 export function renderFailureDetail(data) {
   const main = data.first_observed_failure;
   const jobLink = j => '<a href="' + escape(j.url) +
     '" rel="noopener noreferrer" target="_blank">' + escape(j.name) + '</a>';
   const details = main
     ? '<p><b>First observed failed job:</b> ' + jobLink(main) +
-      '</p><p><b>First failing step:</b> ' + escape(main.first_failed_step || "UNKNOWN") + '</p>'
+      '</p><p><b>First failing step:</b> ' + escape(main.first_failed_step || "UNKNOWN") + '</p>' +
+      '<p><a href="/api/failures/' + escape(data.run_id) +
+      '/jobs/' + escape(main.id) +
+      '/excerpt">View bounded failed-job excerpt (on demand)</a></p>'
     : '<p>Failed job/step: UNKNOWN from available evidence.</p>';
   const list = (xs) => xs.length
     ? '<ul>' + xs.map(j => '<li>' + jobLink(j) +
