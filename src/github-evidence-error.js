@@ -7,7 +7,7 @@ const CATEGORIES = new Set([
 const BOUNDARIES = new Set([
   "REPOSITORY", "OPEN_PRS", "CLOSED_PRS", "PR_DETAIL", "PR_COMMITS",
   "PR_COMMENTS", "COMMIT_CHECKS", "WORKFLOW_RUNS", "WORKFLOW_JOBS",
-  "RECENT_WORKFLOWS", "UNKNOWN",
+  "RECENT_WORKFLOWS", "RATE_LIMIT_PROBE", "UNKNOWN",
 ]);
 const safe = (value, allowed) => allowed.has(value) ? value : "UNKNOWN";
 
