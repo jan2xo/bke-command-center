@@ -130,10 +130,11 @@ test("staging refuses source drift before upload or after upload", async () => {
   }), /SOURCE_MOVED_BEFORE_UPLOAD/u);
   assert.equal(uploaded, false);
   count = 0;
+  let snapshots = 0;
   await assert.rejects(stageWithToken("fake-secret-token", {
     checkSource: () => { count++; return count <= 2 ? sha : "a".repeat(40); },
     verifyToken: async () => {},
-    snapshot: async () => count > 2 ? after : before,
+    snapshot: async () => { snapshots++; return snapshots === 1 ? before : after; },
     upload: async () => { uploaded = true; },
   }), /SOURCE_MOVED_DURING_UPLOAD/u);
   assert.equal(uploaded, true);
