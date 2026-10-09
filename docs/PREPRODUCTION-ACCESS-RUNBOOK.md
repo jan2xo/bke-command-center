@@ -170,3 +170,81 @@ SHA-pinned PREPRODUCTION promotion with protected Access re-acceptance.
 **Production remains locked**. Do not use `wrangler deploy` default or modify
 `airstack.jl-bke.com`. This command never reads or writes secret values, never
 logs the bearer token, and never touches other Workers.
+
+
+## B1 — PINNED PREPRODUCTION traffic promotion and protected acceptance
+
+**Authorization and separation:** this is the final PREPRODUCTION-only acceptance
+intent, not a production release. The operator staged one version with the
+existing Cloudflare `Specified Workers → Editor` restricted token. Version
+`6cd1fcc5-8c44-43a5-9ef9-af23452f2a4a` is version #10
+(`source=wrangler`; uploaded from canonical source commit
+`eb825653a25271149f0934746683a5f0bbeb87b8`).
+At authorization, version #9 `908f6f43-97ff-4621-9bcf-f13b4b679c16`
+was still 100% serving in deployment
+`391149ba-0e1b-450f-8ba3-42fe787a51dc`.
+
+**No implicit promotion.** Only a human operator may run the following locally
+from a clean current-main checkout. Before starting, personally confirm the
+Cloudflare Access self-hosted app still restricts `cc.jl-bke.com` to the
+approved operator and an unauthenticated request to `/api/overview` is sent
+to Cloudflare Access rather than returning Command Center data. Inspect
+the exact protected domain in Cloudflare; the specified-Worker token correctly
+lacks authority to list all Access policies.
+
+```sh
+git pull --ff-only origin main
+npm run cloudflare:promote-scoped-version
+```
+
+The tool requires a real TTY, explicit confirmation text containing the
+**entire pinned version UUID**, and entry of the existing Cloudflare token at a
+hidden prompt. Never share the token here, in GitHub, CI, a shell argument,
+an environment file, or a screenshot.
+
+It refuses to run unless:
+- local HEAD equals remote `main` with a clean worktree and canonical origin;
+- existing token is ACTIVE and both unrelated Workers remain read-denied;
+- encrypted PREPRODUCTION bindings exist, public workers.dev/preview aliases
+  are disabled, and one version is 100%-serving;
+- that serving version/deployment exactly match the recorded #9 rollback anchor;
+- staged version #10 has the exact pinned UUID, `source=wrangler`,
+  and `created_on=2026-10-09T08:02:22.552953Z`.
+
+The sole write is pinned `wrangler@4.148.0 versions deploy
+<staged-version-id>@100% --env preproduction -y`. It promotes the **existing**
+version, does NOT upload a new one, deploy the default Worker, change routes,
+custom domain or Cloudflare Access, or touch Air Stack. Its child process
+receives only the supplied restricted token as `CLOUDFLARE_API_TOKEN` and
+does not inherit broader Cloudflare API credentials; Wrangler stderr/stdout are
+not echoed. Errors or uncertain writes fail closed **without retries**.
+
+After promotion the tool verifies a NEW deployment ID, 100% serving the
+pinned stage, preserved previous version in history, and a still-clean remote
+source. It returns only a non-secret `BKE_B1_SCOPED_PROMOTION=PASS/BLOCKED`
+capsule. If it says BLOCKED **after** the promotion command, do not blindly
+rerun: live traffic might have changed. Inspect deployments immediately.
+
+**Mandatory after-promotion security and acceptance (not proven by CLI PASS):**
+1. Independently inspect Cloudflare deployments/version/settings and verify
+   100% staged version, preserved `GITHUB_TOKEN` and
+   `BKE_ACCESS_POLICY_VERIFIED` encrypted bindings, existing custom domain
+   and disabled alternate URLs. Record new + old deployment IDs/version UUIDs.
+2. Independently check an **unauthenticated** `https://cc.jl-bke.com/api/overview`
+   and `/pr/82` still redirect/deny at Cloudflare Access BEFORE any
+   dashboard data (do not automate login, OAuth or MFA).
+3. Human-approved Access session: check `/`, `/worker`, `/pr/82`,
+   `/github-quota` and exact-head evidence routes still function. Distinguish
+   approved-user functionality from unauthenticated denial.
+4. Compare uploader/deployer Cloudflare metadata to the operator's scoped
+   token use, not previous broad connector deployments. Do not claim a
+   cryptographic association when only human attestation and metadata exist.
+5. Record only safe redacted status identifiers in issues #20 and #5.
+   If Access fails, stop and use the already-recorded version #9 as rollback
+   candidate under an explicitly authorized, restricted-token recovery
+   procedure; do not route to public workers.dev or change domain policies.
+
+**Stop conditions:** unknown Access state; a changed active version or deployment;
+unauthorized public exposure; a stale origin or local source; mismatch in
+versions or new public aliases; denied token; uncertain promotion result.
+**Production, default Worker and other websites remain locked.**
