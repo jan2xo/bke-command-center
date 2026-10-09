@@ -1,7 +1,7 @@
 import { createGitHubAdapter, assignmentFromPullRequest, collectEvidence } from "./github.js";
 import { SYSTEM_REGISTRY, certificationSummary, buildFailureCapsule, buildPostRunSummary } from "./core.js";
 import { dashboardState, renderDashboard } from "./dashboard.js";
-import { failureDetailState, renderFailureDetail } from "./failure-details.js";
+import { failureDetailState, renderFailureDetail, recentFailureExcerptState } from "./failure-details.js";
 import { evidenceFailure } from "./github-evidence-error.js";
 import { githubQuotaState } from "./github-quota.js";
 
@@ -101,6 +101,26 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
   try {
     // Explicitly selected recent CI incidents only. No arbitrary job/log
     // enumeration, no polling and no expensive job fanout on the homepage.
+
+    // Bounded, run-scoped history. NEVER reuse the PR's current exact-head
+    // authorization to expose an old failed job. Validate sampled run and
+    // failed-job membership before downloading any log bytes.
+    const recentExcerptMatch = url.pathname.match(/^\/api\/failures\/(\d+)\/jobs\/(\d+)\/excerpt$/);
+    if (recentExcerptMatch) {
+      const runId = Number(recentExcerptMatch[1]);
+      const jobId = Number(recentExcerptMatch[2]);
+      if (!Number.isSafeInteger(runId) || runId <= 0 ||
+          !Number.isSafeInteger(jobId) || jobId <= 0) {
+        return noStoreJson({ error: "INVALID_INCIDENT_JOB_ID" }, 400);
+      }
+      const excerpt = await recentFailureExcerptState(gh, runId, jobId);
+      if (!excerpt) return noStoreJson({
+        error: "JOB_NOT_FIRST_FAILED_IN_RECENT_INCIDENT_WINDOW",
+        state: "UNKNOWN",
+      }, 404);
+      return noStoreJson(excerpt);
+    }
+
     const incidentMatch = url.pathname.match(/^\/(api\/)?failures\/(\d+)$/);
     if (incidentMatch) {
       const runId = Number(incidentMatch[2]);
