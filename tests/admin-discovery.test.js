@@ -128,3 +128,39 @@ test("Admin UI/API deny unsafe methods, reject missing JWT, and never use GET fo
   assert.equal((await handleRequest(request("fake", "/api/admin/discovery"), env, fakeAdapter)).status, 403);
   assert.equal((await handleRequest(request("fake", "/admin"), { ...env, BKE_ADMIN_DISCOVERY_ENABLED: "false" }, fakeAdapter)).status, 404);
 });
+
+test("Verified Admin GET returns a live GitHub-derived inventory, never its token", async () => {
+  const jwt = await signedAccessToken();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push(String(url));
+    if (String(url).includes("/cdn-cgi/access/certs")) return jwksFetch(url);
+    if (String(url).startsWith("https://api.github.com/user/repos?")) {
+      assert.equal(options.headers.Authorization, "Bearer " + env.GITHUB_TOKEN);
+      return Response.json([fakeRepo(444, "BKE_RENDER_DOCK")]);
+    }
+    throw new Error("unexpected outbound endpoint");
+  };
+  try {
+    const response = await preproductionFetch(request(jwt, "/api/admin/discovery"), {
+      ...env, BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true",
+    });
+    assert.equal(response.status, 200);
+    const state = await response.json();
+    assert.equal(state.total_visible, 1);
+    assert.equal(state.repositories[0].full_name, "jan2xo/BKE_RENDER_DOCK");
+    assert.doesNotMatch(JSON.stringify(state), /test-provider-credential/);
+    assert.equal(state.credential.auto_rotation, false);
+    const html = await preproductionFetch(request(jwt, "/admin"), {
+      ...env, BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true",
+    });
+    assert.equal(html.status, 200);
+    const text = await html.text();
+    assert.match(text, /BKE_RENDER_DOCK/);
+    assert.doesNotMatch(text, /test-provider-credential/);
+    assert.equal(calls.length, 4); // Access JWKS + GitHub for each request.
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
