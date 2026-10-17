@@ -20,6 +20,11 @@ function safeGitHubRepo(item) {
     throw new AdminDiscoveryError("GITHUB_REPOSITORY_RESPONSE_INVALID");
   }
   const [owner, name] = item.full_name.split("/");
+  // GitHub path components are never dot-navigation tokens; fail closed.
+  if (owner === "." || owner === ".." || name === "." || name === ".." ||
+      owner.includes("..") || name.includes("..")) {
+    throw new AdminDiscoveryError("GITHUB_REPOSITORY_RESPONSE_INVALID");
+  }
   // Construct GitHub URLs from validated full_name, not arbitrary upstream links.
   return {
     id: item.id,
