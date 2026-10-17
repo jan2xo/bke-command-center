@@ -39,6 +39,63 @@ function safeGitHubRepo(item) {
   };
 }
 
+const BROKER_PURPOSE = Object.freeze({
+  purpose: "admin_source_discovery",
+  repository: "jan2xo/bke-worker",
+});
+
+async function resolveDiscoveryCredential(env) {
+  const authMode = String(env?.GITHUB_DISCOVERY_AUTH_MODE || "legacy_pat");
+  if (authMode === "legacy_pat") {
+    const token = typeof env?.GITHUB_TOKEN === "string" ? env.GITHUB_TOKEN.trim() : "";
+    if (!token) throw new AdminDiscoveryError("GITHUB_CREDENTIAL_NOT_CONFIGURED");
+    const principal = String(env.GITHUB_DISCOVERY_PRINCIPAL || "user");
+    if (!["user", "installation"].includes(principal)) {
+      throw new AdminDiscoveryError("GITHUB_PRINCIPAL_MODE_INVALID");
+    }
+    return {
+      token, principal,
+      summary: {
+        provider: "github", credential: "SERVER_CONFIGURED",
+        token_lifecycle: "EXTERNAL_OR_MANUAL", auto_rotation: false,
+        scope_verified: false,
+      },
+    };
+  }
+  if (authMode !== "broker") throw new AdminDiscoveryError("GITHUB_DISCOVERY_AUTH_MODE_INVALID");
+  if (typeof env?.BKE_GITHUB_READ_BROKER?.mintReadOnlyGitHubToken !== "function") {
+    throw new AdminDiscoveryError("GITHUB_BROKER_UNAVAILABLE");
+  }
+  let tokenInfo;
+  try {
+    tokenInfo = await env.BKE_GITHUB_READ_BROKER.mintReadOnlyGitHubToken(BROKER_PURPOSE);
+  } catch {
+    // Never silently downgrade to GITHUB_TOKEN if broker fails.
+    throw new AdminDiscoveryError("GITHUB_BROKER_UNAVAILABLE");
+  }
+  const permissions = tokenInfo?.permissions;
+  const expiry = typeof tokenInfo?.expires_at === "string" ? Date.parse(tokenInfo.expires_at) : NaN;
+  const remaining = expiry - Date.now();
+  if (!tokenInfo || tokenInfo.principal !== "github_app_installation" ||
+      tokenInfo.repository !== BROKER_PURPOSE.repository ||
+      typeof tokenInfo.token !== "string" ||
+      !/^ghs_[A-Za-z0-9_]+$/u.test(tokenInfo.token) ||
+      Object.keys(permissions || {}).sort().join(",") !== "contents,issues,pull_requests" ||
+      permissions.contents !== "read" || permissions.issues !== "read" ||
+      permissions.pull_requests !== "read" ||
+      !Number.isFinite(remaining) || remaining < 120000 || remaining > 3660000) {
+    throw new AdminDiscoveryError("GITHUB_BROKER_RESPONSE_INVALID");
+  }
+  return {
+    token: tokenInfo.token, principal: "installation",
+    summary: {
+      provider: "github", credential: "BROKER_CONNECTED",
+      token_lifecycle: "ON_DEMAND_SHORT_LIVED", auto_rotation: true,
+      scope_verified: false,
+    },
+  };
+}
+
 export function summarizeCredential(env) {
   return {
     provider: "github",
@@ -50,16 +107,7 @@ export function summarizeCredential(env) {
 }
 
 export async function discoverGitHubRepositories(env, fetchImpl = fetch) {
-  const credential = summarizeCredential(env);
-  if (credential.credential !== "SERVER_CONFIGURED") {
-    throw new AdminDiscoveryError("GITHUB_CREDENTIAL_NOT_CONFIGURED");
-  }
-  // Existing Command Center fine-grained GITHUB_TOKEN uses "user" mode.
-  // Short-lived installation tokens from a future broker use installation mode.
-  const mode = String(env.GITHUB_DISCOVERY_PRINCIPAL || "user");
-  if (!["user", "installation"].includes(mode)) {
-    throw new AdminDiscoveryError("GITHUB_PRINCIPAL_MODE_INVALID");
-  }
+  const { token, principal: mode, summary: credential } = await resolveDiscoveryCredential(env);
   const path = mode === "installation" ? "/installation/repositories" : "/user/repos";
   const repos = [];
   const seen = new Set();
@@ -74,7 +122,7 @@ export async function discoverGitHubRepositories(env, fetchImpl = fetch) {
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "bke-command-center-admin-discovery",
-          Authorization: "Bearer " + env.GITHUB_TOKEN,
+          Authorization: "Bearer " + token,
         },
         redirect: "error",
       });
