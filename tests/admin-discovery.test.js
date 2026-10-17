@@ -48,8 +48,8 @@ const request = (jwt, route = "/admin") => new Request("https://cc.jl-bke.com" +
 test("Admin default OFF and no verified Access claims are denied before discovery", async () => {
   assert.equal(adminAccessConfigured({}), false);
   assert.equal(await authorizeAdminAccess(request(""), env, jwksFetch, webcrypto), false);
-  assert.equal((await handleRequest(request(""), {}, () => { throw new Error("unexpected adapter"); })).status, 404);
-  assert.equal((await handleRequest(request(""), env, () => { throw new Error("unexpected adapter"); })).status, 403);
+  assert.equal((await handleRequest(request(""), {}, () => ({}))).status, 404);
+  assert.equal((await handleRequest(request(""), env, () => ({}))).status, 403);
   const locked = preproductionFetch(request(""), { BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "false" });
   assert.equal(locked.status, 503);
 });
