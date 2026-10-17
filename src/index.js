@@ -4,6 +4,8 @@ import { dashboardState, renderDashboard } from "./dashboard.js";
 import { failureDetailState, renderFailureDetail, recentFailureExcerptState } from "./failure-details.js";
 import { evidenceFailure } from "./github-evidence-error.js";
 import { githubQuotaState } from "./github-quota.js";
+import { adminAccessConfigured, authorizeAdminAccess } from "./admin-access.js";
+import { AdminDiscoveryError, discoverGitHubRepositories } from "./admin-discovery.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -99,6 +101,44 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
   const url = new URL(request.url);
   const gh = createAdapter(env);
   try {
+    // Admin-only PREPRODUCTION source discovery. DISABLED unless explicitly
+    // configured. Verified Access signature + allowlisted person required.
+    // No API writes and no credential materials ever returned to the client.
+    if (url.pathname === "/admin" || url.pathname === "/api/admin/discovery") {
+      if (request.method !== "GET") return noStoreJson({ error: "METHOD_NOT_ALLOWED" }, 405);
+      if (!adminAccessConfigured(env)) return noStoreJson({ error: "ADMIN_DISCOVERY_NOT_ENABLED" }, 404);
+      if (!await authorizeAdminAccess(request, env)) {
+        return noStoreJson({ error: "ADMIN_ACCESS_DENIED" }, 403);
+      }
+      let discovery;
+      try {
+        discovery = await discoverGitHubRepositories(env);
+      } catch (error) {
+        const code = error instanceof AdminDiscoveryError ? error.code : "GITHUB_DISCOVERY_UNKNOWN";
+        if (url.pathname.startsWith("/api/")) {
+          return noStoreJson({ error: code, state: "UNKNOWN" }, 503);
+        }
+        return page("Admin discovery", "<h1>Admin · GitHub source discovery</h1>" +
+          "<section><p><b>State:</b> UNKNOWN</p><p class='muted'>" +
+          esc(code) + " — no repositories or credentials are exposed.</p></section>");
+      }
+      if (url.pathname === "/api/admin/discovery") return noStoreJson(discovery);
+      const items = discovery.repositories;
+      return page("Admin discovery",
+        "<h1>Admin · Source discovery</h1>" +
+        "<section><h2>GitHub integration</h2>" +
+        "<p><b>Accessible repositories:</b> " + esc(discovery.total_visible) +
+        " · <b>Scope:</b> " + esc(discovery.scope) +
+        " · <b>Identity:</b> " + esc(discovery.principal) + "</p>" +
+        "<p><b>Server credential:</b> " + esc(discovery.credential.credential) +
+        " · <b>Automatic rotation:</b> NOT YET IMPLEMENTED</p>" +
+        "<p class='muted'>Read-only, fetched live from GitHub. No worker assignments, token contents, personal browser profiles or production mutations. Credential automation requires a separate certified broker.</p>" +
+        "</section><section><h2>Discovered repositories</h2>" +
+        list(items, (item) => "<li>" + link(item.url, item.full_name) +
+          " · " + esc(item.visibility) + (item.archived ? " · archived" : "") +
+          " · default " + esc(item.default_branch || "UNKNOWN") + "</li>") +
+        "</section>");
+    }
     // Explicitly selected recent CI incidents only. No arbitrary job/log
     // enumeration, no polling and no expensive job fanout on the homepage.
 

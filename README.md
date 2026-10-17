@@ -10,6 +10,12 @@ Read the [full mode contract, merge-gate instructions, branch-protection caveats
 
 **Nitro pre-merge CI without a CLI (preferred):** After engineering and review, ChatGPT posts an owner-authored PR comment exactly `/nitro-certify <current-exact-40-hex-head-SHA>`. The separate `nitro-certify.yml` workflow is triggered by `issue_comment`, validates owner authority and current Nitro PR/head before allocating expensive tests, tests the exact checked-out head, then revalidates it. It never deploys Cloudflare. Ordinary comments can create **skipped GitHub workflow events**, but no expensive CI jobs. `workflow_dispatch` remains an optional fallback. Details: [engineering modes](docs/ENGINEERING-MODES.md).
 
+## Admin V0 — automatic source discovery (draft, not deployed)
+
+The [Admin discovery contract](docs/admin-discovery.md) introduces a **disabled-by-default** `/admin` surface and `/api/admin/discovery` for an explicitly allowlisted, **cryptographically verified Cloudflare Access Admin**. It reads GitHub repositories on demand through an existing server-side credential; it never sends bearer tokens to the browser, writes to GitHub, assigns workers, or requires a per-worker repository URL.
+
+This is an early bounded foundation: App installation authorization, product-source retrieval, broker-issued expiring tokens, provider rotation/revocation, secure worker enrollment and multi-worker execution are **separate unfinished intents**. The current `GITHUB_TOKEN` is still externally provisioned and `auto_rotation=false`. Production and the deployed PREPRODUCTION Admin routes remain disabled until separately certified and explicitly enabled.
+
 ## Local development and certification
 
 1. Run `npm ci`.
