@@ -12,7 +12,7 @@ const env = {
   BKE_ADMIN_EMAILS: "admin@example.test",
   GITHUB_TOKEN: "test-provider-credential",
 };
-const enc = (value) => Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
+const enc = (value) => Buffer.isBuffer(value) ? value.toString("base64url") : Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
 const fakeRepo = (id, name) => ({
   id, full_name: "jan2xo/" + name, default_branch: "main", visibility: "private", private: true, archived: false,
 });
