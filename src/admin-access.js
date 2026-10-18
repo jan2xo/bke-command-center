@@ -88,3 +88,38 @@ export async function inspectAdminAccess(request, env, fetchImpl = fetch, crypto
 export async function authorizeAdminAccess(request, env, fetchImpl = fetch, cryptoImpl = crypto) {
   return (await inspectAdminAccess(request, env, fetchImpl, cryptoImpl)) === "AUTHORIZED";
 }
+
+
+// ctx.access is a Cloudflare-provided, platform-verified authentication
+// context for a DIRECT Access-authenticated Worker invocation. It is not a
+// client-supplied header and is NOT forwarded across Service Binding RPCs.
+// This runtime boundary intentionally has NO fallback to an unverified header
+// or the legacy remote-JWKS path when ctx.access is absent.
+export async function inspectAdminRuntimeAccess(ctx, env) {
+  if (!adminAccessConfigured(env)) return "CONFIG_REJECTED";
+  const access = ctx?.access;
+  if (!access || typeof access.getIdentity !== "function") {
+    return "EDGE_ACCESS_CONTEXT_MISSING";
+  }
+  if (typeof access.aud !== "string" ||
+      access.aud !== env.BKE_ADMIN_ACCESS_AUD) {
+    return "ACCESS_AUDIENCE_REJECTED";
+  }
+  let identity;
+  try {
+    identity = await access.getIdentity();
+  } catch {
+    return "ACCESS_IDENTITY_UNAVAILABLE";
+  }
+  const email = identity?.email;
+  if (typeof email !== "string" ||
+      !/^[^\s@,]+@[^\s@,]+$/u.test(email)) {
+    return "ACCESS_IDENTITY_REJECTED";
+  }
+  const allowlist = String(env.BKE_ADMIN_EMAILS)
+    .split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+  if (!allowlist.includes(email.trim().toLowerCase())) {
+    return "ACCESS_IDENTITY_REJECTED";
+  }
+  return "AUTHORIZED";
+}
