@@ -48,14 +48,48 @@ const BROKER_PURPOSE = Object.freeze({
 // crosses from the relay into this Command Center process.
 const CATALOG_PURPOSE = Object.freeze({ purpose: "admin_installation_repository_catalog" });
 
+// RPC exceptions may cross a Cloudflare Worker boundary. Map *only* exact
+// known non-sensitive broker error codes into Admin diagnostics; never copy
+// upstream errors, provider bodies, credentials or stack details into HTML/JSON.
+const SAFE_CATALOG_FAILURES = Object.freeze({
+  ADMIN_BROKER_LOCKED: "GITHUB_CATALOG_DISABLED",
+  ADMIN_CATALOG_LOCKED: "GITHUB_CATALOG_DISABLED",
+  ADMIN_CATALOG_PURPOSE_INVALID: "GITHUB_CATALOG_REQUEST_REJECTED",
+  GITHUB_APP_ID_UNCONFIGURED: "GITHUB_CATALOG_APP_CONFIGURATION_UNAVAILABLE",
+  GITHUB_APP_PRIVATE_KEY_UNCONFIGURED: "GITHUB_CATALOG_APP_CONFIGURATION_UNAVAILABLE",
+  GITHUB_APP_INSTALLATION_RESPONSE_INVALID: "GITHUB_CATALOG_INSTALLATION_UNAVAILABLE",
+  ADMIN_CATALOG_TOKEN_REJECTED: "GITHUB_CATALOG_TOKEN_ISSUANCE_REJECTED",
+  ADMIN_CATALOG_TOKEN_SCOPE_INVALID: "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED",
+  ADMIN_CATALOG_REPOSITORIES_UNAVAILABLE: "GITHUB_CATALOG_PROVIDER_UNAVAILABLE",
+  ADMIN_CATALOG_REPOSITORIES_INVALID: "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID",
+  ADMIN_CATALOG_DUPLICATE_REPOSITORY: "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID",
+  ADMIN_CATALOG_PAGINATION_INCOMPLETE: "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID",
+  ADMIN_CATALOG_REPOSITORY_INVALID: "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID",
+  ADMIN_CATALOG_RESULT_INVALID: "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID",
+});
+
+export function safeCatalogBrokerFailure(error) {
+  const raw = typeof error?.message === "string" ? error.message : "";
+  if (!raw || raw.length > 200) return "GITHUB_CATALOG_BROKER_UNAVAILABLE";
+  const code = raw.startsWith("Error: ") ? raw.slice(7) : raw;
+  if (Object.hasOwn(SAFE_CATALOG_FAILURES, code)) return SAFE_CATALOG_FAILURES[code];
+  if (/^GITHUB_APP_INSTALLATION_RESOLUTION_FAILED:(?:401|403|404|422|429|500|502|503)$/u.test(code)) {
+    return "GITHUB_CATALOG_INSTALLATION_UNAVAILABLE";
+  }
+  if (/^GITHUB_APP_PERMISSION_REQUIRED:(?:contents|issues|pull_requests)=(?:read|write);granted=(?:none|read|write)$/u.test(code)) {
+    return "GITHUB_CATALOG_INSTALLATION_SCOPE_REJECTED";
+  }
+  return "GITHUB_CATALOG_BROKER_UNAVAILABLE";
+}
+
 async function discoverInstalledCatalog(env) {
   const rpc = env?.BKE_GITHUB_READ_BROKER?.listApprovedGitHubRepositories;
   if (typeof rpc !== "function") throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
   let payload;
   try {
     payload = await env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories(CATALOG_PURPOSE);
-  } catch {
-    throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
+  } catch (error) {
+    throw new AdminDiscoveryError(safeCatalogBrokerFailure(error));
   }
   if (!payload || payload.principal !== "github_app_installation" ||
       payload.authority !== "EXISTING_GITHUB_APP_INSTALLATION" ||
