@@ -37,17 +37,20 @@ export function adminAccessConfigured(env) {
   return String(env.BKE_ADMIN_EMAILS).split(",").some((x) => /^[^\s@,]+@[^\s@,]+$/u.test(x.trim()));
 }
 
-export async function authorizeAdminAccess(request, env, fetchImpl = fetch, cryptoImpl = crypto) {
-  if (!adminAccessConfigured(env)) return false;
+// Only enumerated diagnostic stages may leave this module. Never reflect
+// JWT bytes, key material, email, audience, issuer, fetched payloads or errors.
+export async function inspectAdminAccess(request, env, fetchImpl = fetch, cryptoImpl = crypto) {
+  if (!adminAccessConfigured(env)) return "CONFIG_REJECTED";
   const token = request.headers.get("cf-access-jwt-assertion") || "";
-  if (token.length > 10000) return false;
+  if (!token) return "EDGE_JWT_MISSING";
+  if (token.length > 10000) return "JWT_MALFORMED";
   const parts = token.split(".");
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return "JWT_MALFORMED";
   const header = parseJson(decode(parts[0]));
   const payload = parseJson(decode(parts[1]));
   const signature = decode(parts[2]);
-  if (!header || !payload || !signature || !signature.length) return false;
-  if (header.alg !== "RS256" || !/^[a-zA-Z0-9_-]{1,180}$/u.test(String(header.kid || ""))) return false;
+  if (!header || !payload || !signature || !signature.length) return "JWT_MALFORMED";
+  if (header.alg !== "RS256" || !/^[a-zA-Z0-9_-]{1,180}$/u.test(String(header.kid || ""))) return "JWT_HEADER_REJECTED";
   const now = Math.floor(Date.now() / 1000);
   const emails = String(env.BKE_ADMIN_EMAILS).split(",").map((x) => x.trim().toLowerCase());
   if (payload.type !== "app" || payload.iss !== accessIssuer(env) ||
@@ -56,20 +59,32 @@ export async function authorizeAdminAccess(request, env, fetchImpl = fetch, cryp
       !Number.isInteger(payload.iat) || payload.iat > now + 60 ||
       (payload.nbf !== undefined && (!Number.isInteger(payload.nbf) || payload.nbf > now + 60)) ||
       typeof payload.sub !== "string" || !payload.sub ||
-      typeof payload.email !== "string" || !emails.includes(payload.email.trim().toLowerCase())) return false;
+      typeof payload.email !== "string" || !emails.includes(payload.email.trim().toLowerCase())) return "JWT_CLAIMS_REJECTED";
   try {
     const response = await fetchImpl(accessIssuer(env) + "/cdn-cgi/access/certs", { redirect: "error" });
-    if (!response.ok || Number(response.headers.get("content-length") || 0) > 65536) return false;
+    if (!response.ok || Number(response.headers.get("content-length") || 0) > 65536) return "JWKS_UNAVAILABLE";
     const jwks = await response.json();
-    if (!Array.isArray(jwks?.keys) || jwks.keys.length > 16) return false;
+    if (!Array.isArray(jwks?.keys) || jwks.keys.length > 16) return "JWKS_UNAVAILABLE";
     const key = jwks.keys.find((item) =>
       item && item.kid === header.kid && item.kty === "RSA" &&
       (!item.alg || item.alg === "RS256") && (!item.use || item.use === "sig"));
-    if (!key) return false;
-    const publicKey = await cryptoImpl.subtle.importKey("jwk", key, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-    return await cryptoImpl.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, signature, encoder.encode(parts[0] + "." + parts[1]));
+    if (!key) return "JWKS_KEY_NOT_FOUND";
+    // Invalid JWK is a separate server-side verification failure. Never
+    // substitute an unverified header or browser cookie for signature proof.
+    let verified = false;
+    try {
+      const publicKey = await cryptoImpl.subtle.importKey("jwk", key, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+      verified = await cryptoImpl.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, signature, encoder.encode(parts[0] + "." + parts[1]));
+    } catch {
+      return "JWKS_KEY_INVALID";
+    }
+    return verified ? "AUTHORIZED" : "JWT_SIGNATURE_INVALID";
   } catch {
-    // Do not reflect JWT, JWKS errors, Access identity or upstream URLs.
-    return false;
+    // No upstream URLs, error messages or token/claim details are exposed.
+    return "JWKS_UNAVAILABLE";
   }
+}
+
+export async function authorizeAdminAccess(request, env, fetchImpl = fetch, cryptoImpl = crypto) {
+  return (await inspectAdminAccess(request, env, fetchImpl, cryptoImpl)) === "AUTHORIZED";
 }
