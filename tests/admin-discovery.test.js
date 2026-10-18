@@ -177,9 +177,9 @@ test("Admin JWT denial stages never contain identity, token bytes, issuer or key
     async () => new Response("unauthorized", {status:403}), webcrypto), "JWKS_UNAVAILABLE");
   assert.equal(await inspectAdminAccess(request(jwt), env,
     async () => Response.json({keys:[]}), webcrypto), "JWKS_KEY_NOT_FOUND");
-  assert.equal(await inspectAdminAccess(request(jwt), env,
-    async () => Response.json({keys:[{...(await rsaFixture()).jwk, n:"invalid@"}]}),
-    webcrypto), "JWKS_KEY_INVALID");
+  assert.equal(await inspectAdminAccess(request(jwt), env, jwksFetch, {
+    subtle: { async importKey() { throw new Error("invalid test-only public key"); } },
+  }), "JWKS_KEY_INVALID");
   const [header, body] = jwt.split(".");
   const tampered = header + "." + body + "." + enc(Buffer.from([1,2,3]));
   assert.equal(await inspectAdminAccess(request(tampered), env, jwksFetch, webcrypto),
