@@ -106,6 +106,10 @@ test("broker RPC reports only fixed non-sensitive upstream categories", async ()
     ["GITHUB_APP_INSTALLATION_RESOLUTION_FAILED:404", "GITHUB_CATALOG_INSTALLATION_UNAVAILABLE"],
     ["GITHUB_APP_PERMISSION_REQUIRED:contents=read;granted=none", "GITHUB_CATALOG_INSTALLATION_SCOPE_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_REJECTED", "GITHUB_CATALOG_TOKEN_ISSUANCE_REJECTED"],
+    ["ADMIN_CATALOG_APP_SIGNING_UNAVAILABLE", "GITHUB_CATALOG_APP_SIGNING_UNAVAILABLE"],
+    ["ADMIN_CATALOG_INSTALLATION_LOOKUP_UNAVAILABLE", "GITHUB_CATALOG_INSTALLATION_RUNTIME_UNAVAILABLE"],
+    ["ADMIN_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE", "GITHUB_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE"],
+    ["ADMIN_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE", "GITHUB_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE"],
     ["ADMIN_CATALOG_TOKEN_SCOPE_INVALID", "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_BEARER_INVALID", "GITHUB_CATALOG_TOKEN_BEARER_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_EXPIRY_INVALID", "GITHUB_CATALOG_TOKEN_EXPIRY_REJECTED"],
@@ -138,6 +142,10 @@ test("unexpected RPC errors, provider secrets and personal details are always hi
     "GITHUB_APP_PERMISSION_REQUIRED:contents=write;granted=private",
     "ADMIN_CATALOG_TOKEN_SCOPE_INVALID " + "x".repeat(300),
     "ADMIN_CATALOG_TOKEN_BEARER_INVALID: ghs_fakeTOKEN",
+    "ADMIN_CATALOG_APP_SIGNING_UNAVAILABLE: PRIVATE_KEY",
+    "ADMIN_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE\n X-github-token: ghs_fake",
+    "ADMIN_CATALOG_INSTALLATION_LOOKUP_UNAVAILABLE " + "x".repeat(400),
+    "ADMIN_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE: SECRET",
     "ADMIN_CATALOG_TOKEN_GRANT_INVALID\n metadata write",
     "ADMIN_CATALOG_TOKEN_EXPIRY_INVALID " + "x".repeat(301),
     null,
@@ -187,5 +195,34 @@ test("three catalog token stages are safe fixed categories with no fallback to P
     );
     assert.equal(directCalls, 0);
     assert.deepEqual(seen, [{ purpose: "admin_installation_repository_catalog" }]);
+  }
+});
+
+
+test("runtime-stage codes are redacted, fixed and never turn into a token or auth fallback", async () => {
+  const mappings = [
+    ["ADMIN_CATALOG_APP_SIGNING_UNAVAILABLE","GITHUB_CATALOG_APP_SIGNING_UNAVAILABLE"],
+    ["ADMIN_CATALOG_INSTALLATION_LOOKUP_UNAVAILABLE","GITHUB_CATALOG_INSTALLATION_RUNTIME_UNAVAILABLE"],
+    ["ADMIN_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE","GITHUB_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE"],
+    ["ADMIN_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE","GITHUB_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE"],
+  ];
+  for (const [privateCode,publicCode] of mappings) {
+    const {env,seen} = fixture();
+    let fallbackCalls = 0;
+    env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories = async request => {
+      seen.push(request);
+      throw new Error(privateCode);
+    };
+    await assert.rejects(() => discoverGitHubRepositories(env,async()=>{
+      fallbackCalls++;
+      throw Error("BAD_PUBLIC_TOKEN_FALLBACK");
+    }),error=>{
+      assert.equal(error.code,publicCode);
+      assert.equal(error.message,publicCode);
+      assert.doesNotMatch(error.message,/ghs_|JWT|KEY|PRIVATE_KEY|SECRET|admin@example/i);
+      return true;
+    });
+    assert.equal(fallbackCalls,0);
+    assert.deepEqual(seen,[{purpose:"admin_installation_repository_catalog"}]);
   }
 });
