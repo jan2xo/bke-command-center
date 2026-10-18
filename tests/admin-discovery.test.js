@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { authorizeAdminAccess, adminAccessConfigured } from "../src/admin-access.js";
+import { authorizeAdminAccess, adminAccessConfigured, inspectAdminAccess } from "../src/admin-access.js";
 import { discoverGitHubRepositories } from "../src/admin-discovery.js";
 import { handleRequest, preproductionFetch } from "../src/index.js";
 
@@ -160,6 +160,59 @@ test("Verified Admin GET returns a live GitHub-derived inventory, never its toke
     assert.match(text, /BKE_RENDER_DOCK/);
     assert.doesNotMatch(text, /test-provider-credential/);
     assert.equal(calls.length, 4); // Access JWKS + GitHub for each request.
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("Admin JWT denial stages never contain identity, token bytes, issuer or key detail", async () => {
+  const jwt = await signedAccessToken();
+  assert.equal(await inspectAdminAccess(request(""), env, jwksFetch, webcrypto), "EDGE_JWT_MISSING");
+  assert.equal(await inspectAdminAccess(request("junk"), env, jwksFetch, webcrypto), "JWT_MALFORMED");
+  assert.equal(await inspectAdminAccess(
+    request(await signedAccessToken({email:"not-admin@example.test"})),
+    env, jwksFetch, webcrypto), "JWT_CLAIMS_REJECTED");
+  assert.equal(await inspectAdminAccess(request(jwt), env,
+    async () => new Response("unauthorized", {status:403}), webcrypto), "JWKS_UNAVAILABLE");
+  assert.equal(await inspectAdminAccess(request(jwt), env,
+    async () => Response.json({keys:[]}), webcrypto), "JWKS_KEY_NOT_FOUND");
+  assert.equal(await inspectAdminAccess(request(jwt), env, jwksFetch, {
+    subtle: { async importKey() { throw new Error("invalid test-only public key"); } },
+  }), "JWKS_KEY_INVALID");
+  const [header, body] = jwt.split(".");
+  const tampered = header + "." + body + "." + enc(Buffer.from([1,2,3]));
+  assert.equal(await inspectAdminAccess(request(tampered), env, jwksFetch, webcrypto),
+    "JWT_SIGNATURE_INVALID");
+  assert.equal(await inspectAdminAccess(request(jwt), env, jwksFetch, webcrypto), "AUTHORIZED");
+});
+
+test("Admin protected endpoint emits only coarse denial buckets, never allowlist or JWT", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const preproductionEnv = {...env,BKE_PREPRODUCTION:"true",BKE_ACCESS_POLICY_VERIFIED:"true"};
+    let response = await preproductionFetch(request("","/api/admin/discovery"), preproductionEnv);
+    assert.equal(response.status,403);
+    assert.deepEqual(await response.json(), {
+      error:"ADMIN_ACCESS_DENIED",auth_stage:"EDGE_JWT_MISSING"
+    });
+    response = await preproductionFetch(request("junk","/api/admin/discovery"), preproductionEnv);
+    assert.deepEqual(await response.json(), {
+      error:"ADMIN_ACCESS_DENIED",auth_stage:"JWT_REJECTED"
+    });
+    const signed = await signedAccessToken();
+    globalThis.fetch = async () => new Response("upstream denied",{status:403});
+    response = await preproductionFetch(request(signed,"/api/admin/discovery"),preproductionEnv);
+    assert.deepEqual(await response.json(), {
+      error:"ADMIN_ACCESS_DENIED",auth_stage:"VERIFICATION_KEY_UNAVAILABLE"
+    });
+    globalThis.fetch = jwksFetch;
+    const changedEmail = await signedAccessToken({ email: "other-identity@example.test" });
+    response = await preproductionFetch(request(changedEmail,"/api/admin/discovery"),preproductionEnv);
+    const body = JSON.stringify(await response.json());
+    assert.match(body,/JWT_REJECTED/);
+    assert.doesNotMatch(body,/admin@example\.test|other-identity|bke-test|ghs_|eyJh|trusted-kid/);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
   } finally {
     globalThis.fetch = originalFetch;
   }
