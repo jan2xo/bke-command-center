@@ -54,6 +54,6 @@ Never configure privileged settings or raw secrets in `wrangler.toml`, GitHub so
 
 ## Certification deferred by operator
 
-This PR intentionally remains **DRAFT / UNMERGED / UNDEPLOYED**. No production action and no credential migration. The current implementation is a prepared candidate; tests are included but **no certification is claimed** today.
+The V0 Admin discovery implementation merged in PR #29 as **disabled-by-default code only**. No production action, PREPRODUCTION Admin activation, or credential migration was part of that merge. The next bounded integration is described in [admin-broker-integration.md](admin-broker-integration.md), which remains separate from live deployment and human Access smoke.
 
 When authorized later: use exact-head `npm ci`, `npm run check`, `npm test`, `npm run cloudflare:dry-run`, independent auth/SSRF/tenant-isolation review, and PREPRODUCTION human-Access smoke with and without valid signed JWT before enabling any live Admin route. The normal Command Center CI mode may run automatically on draft PR creation; that is not a substitute for the explicit merge/deployment gate.

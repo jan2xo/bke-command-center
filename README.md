@@ -16,6 +16,10 @@ The [Admin discovery contract](docs/admin-discovery.md) introduces a **disabled-
 
 This is an early bounded foundation: App installation authorization, product-source retrieval, broker-issued expiring tokens, provider rotation/revocation, secure worker enrollment and multi-worker execution are **separate unfinished intents**. The current `GITHUB_TOKEN` is still externally provisioned and `auto_rotation=false`. Production and the deployed PREPRODUCTION Admin routes remain disabled until separately certified and explicitly enabled.
 
+## Admin V1 — broker token path (candidate)
+
+The [GitHub App broker integration](docs/admin-broker-integration.md) adds a PREPRODUCTION-only private Cloudflare Service binding for on-demand, narrowly read-only installation tokens. Broker mode must be explicitly selected; it never falls back to the old static PAT on a broker error. **No credentials or live service have been cut over.** BKE Worker private broker PR #92 is a required independent dependency; Admin source discovery remains OFF until separately authorized deployment/Access proof.
+
 ## Local development and certification
 
 1. Run `npm ci`.

@@ -131,7 +131,7 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
         " · <b>Scope:</b> " + esc(discovery.scope) +
         " · <b>Identity:</b> " + esc(discovery.principal) + "</p>" +
         "<p><b>Server credential:</b> " + esc(discovery.credential.credential) +
-        " · <b>Automatic rotation:</b> NOT YET IMPLEMENTED</p>" +
+        " · <b>Short-lived token renewal:</b> " + esc(discovery.credential.auto_rotation ? "ON-DEMAND" : "NOT AUTOMATED") + "</p>" +
         "<p class='muted'>Read-only, fetched live from GitHub. No worker assignments, token contents, personal browser profiles or production mutations. Credential automation requires a separate certified broker.</p>" +
         "</section><section><h2>Discovered repositories</h2>" +
         list(items, (item) => "<li>" + link(item.url, item.full_name) +

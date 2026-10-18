@@ -27,3 +27,11 @@ custom_domain = true
 BKE_PREPRODUCTION = "true"
 GITHUB_OWNER = "jan2xo"
 GITHUB_REPO = "bke-worker"
+
+# Private server-to-server capability, never exposed through public HTTP.
+# Must resolve only to the existing PREPRODUCTION BKE Worker relay.
+# The relay's named broker RPC remains locked until separately authorized.
+[[env.preproduction.services]]
+binding = "BKE_GITHUB_READ_BROKER"
+service = "bke-worker-relay-preproduction"
+entrypoint = "CommandCenterReadBroker"
