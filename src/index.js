@@ -4,7 +4,7 @@ import { dashboardState, renderDashboard } from "./dashboard.js";
 import { failureDetailState, renderFailureDetail, recentFailureExcerptState } from "./failure-details.js";
 import { evidenceFailure } from "./github-evidence-error.js";
 import { githubQuotaState } from "./github-quota.js";
-import { adminAccessConfigured, inspectAdminAccess } from "./admin-access.js";
+import { adminAccessConfigured, inspectAdminRuntimeAccess } from "./admin-access.js";
 import { AdminDiscoveryError, discoverGitHubRepositories } from "./admin-discovery.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -97,7 +97,7 @@ function failureJobIds(state) {
   return ids;
 }
 
-export async function handleRequest(request, env, createAdapter = createGitHubAdapter) {
+export async function handleRequest(request, env, createAdapter = createGitHubAdapter, executionCtx) {
   const url = new URL(request.url);
   const gh = createAdapter(env);
   try {
@@ -107,16 +107,16 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
     if (url.pathname === "/admin" || url.pathname === "/api/admin/discovery") {
       if (request.method !== "GET") return noStoreJson({ error: "METHOD_NOT_ALLOWED" }, 405);
       if (!adminAccessConfigured(env)) return noStoreJson({ error: "ADMIN_DISCOVERY_NOT_ENABLED" }, 404);
-      const authStage = await inspectAdminAccess(request, env);
+      const authStage = await inspectAdminRuntimeAccess(executionCtx, env);
       if (authStage !== "AUTHORIZED") {
         // Publicly visible buckets intentionally combine invalid signature,
         // mismatched allowlist/claims and malformed JWT: never expose
         // which identity, issuer, AUD or key a forged token may have guessed.
-        const diagnostic = authStage === "EDGE_JWT_MISSING"
-          ? "EDGE_JWT_MISSING"
-          : ["JWKS_UNAVAILABLE", "JWKS_KEY_NOT_FOUND", "JWKS_KEY_INVALID"].includes(authStage)
-            ? "VERIFICATION_KEY_UNAVAILABLE"
-            : "JWT_REJECTED";
+        const diagnostic = authStage === "EDGE_ACCESS_CONTEXT_MISSING"
+          ? "EDGE_ACCESS_CONTEXT_MISSING"
+          : authStage === "ACCESS_IDENTITY_UNAVAILABLE"
+            ? "VERIFIED_IDENTITY_UNAVAILABLE"
+            : "ACCESS_IDENTITY_REJECTED";
         return noStoreJson({ error: "ADMIN_ACCESS_DENIED", auth_stage: diagnostic }, 403);
       }
       let discovery;
@@ -250,7 +250,7 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
 // The named PREPRODUCTION deployment sets this flag. Any accidental default
 // deployment or incomplete environment configuration must not serve GitHub
 // observability, including on-demand job failure evidence.
-export function preproductionFetch(request, env) {
+export function preproductionFetch(request, env, executionCtx) {
   if (env?.BKE_PREPRODUCTION !== "true") {
     return Response.json(
       { error: "COMMAND_CENTER_PREPRODUCTION_ONLY", state: "LOCKED" },
@@ -275,7 +275,7 @@ export function preproductionFetch(request, env) {
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
-  return handleRequest(request, env);
+  return handleRequest(request, env, createGitHubAdapter, executionCtx);
 }
 
 export default { fetch: preproductionFetch };
