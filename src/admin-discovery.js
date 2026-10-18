@@ -44,6 +44,68 @@ const BROKER_PURPOSE = Object.freeze({
   repository: "jan2xo/bke-worker",
 });
 
+// The catalog RPC returns *metadata only*: no installation bearer ever
+// crosses from the relay into this Command Center process.
+const CATALOG_PURPOSE = Object.freeze({ purpose: "admin_installation_repository_catalog" });
+
+async function discoverInstalledCatalog(env) {
+  const rpc = env?.BKE_GITHUB_READ_BROKER?.listApprovedGitHubRepositories;
+  if (typeof rpc !== "function") throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
+  let payload;
+  try {
+    payload = await env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories(CATALOG_PURPOSE);
+  } catch {
+    throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
+  }
+  if (!payload || payload.principal !== "github_app_installation" ||
+      payload.authority !== "EXISTING_GITHUB_APP_INSTALLATION" ||
+      payload.repository_scope !== "INSTALLATION_APPROVED_ONLY" ||
+      !Number.isSafeInteger(payload.total_visible) ||
+      payload.total_visible < 0 || payload.total_visible > 500 ||
+      !Array.isArray(payload.repositories) ||
+      payload.repositories.length !== payload.total_visible) {
+    throw new AdminDiscoveryError("GITHUB_CATALOG_RESPONSE_INVALID");
+  }
+  const repositories = [];
+  const ids = new Set();
+  const names = new Set();
+  for (const raw of payload.repositories) {
+    if (!raw || typeof raw.private !== "boolean" ||
+        typeof raw.archived !== "boolean" ||
+        (raw.default_branch !== null &&
+          (typeof raw.default_branch !== "string" ||
+           !/^[A-Za-z0-9_./-]{1,250}$/u.test(raw.default_branch)))) {
+      throw new AdminDiscoveryError("GITHUB_CATALOG_RESPONSE_INVALID");
+    }
+    const safe = safeGitHubRepo(raw);
+    if (raw.html_url !== safe.url ||
+        !Number.isSafeInteger(safe.id) || safe.id <= 0 ||
+        ids.has(safe.id) || names.has(safe.full_name)) {
+      throw new AdminDiscoveryError("GITHUB_CATALOG_RESPONSE_INVALID");
+    }
+    ids.add(safe.id);
+    names.add(safe.full_name);
+    repositories.push(safe);
+  }
+  return {
+    provider: "github",
+    principal: "installation",
+    state: "DISCOVERED",
+    total_visible: repositories.length,
+    repositories: repositories.sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    credential: {
+      provider: "github",
+      credential: "BROKER_CONNECTED",
+      token_lifecycle: "ON_DEMAND_SHORT_LIVED",
+      auto_rotation: true,
+      scope_verified: true,
+    },
+    scope: "INSTALLATION_APPROVED_ONLY",
+    worker_liveness: "UNKNOWN",
+    sources_authority: "GITHUB",
+  };
+}
+
 async function resolveDiscoveryCredential(env) {
   const authMode = String(env?.GITHUB_DISCOVERY_AUTH_MODE || "legacy_pat");
   if (authMode === "legacy_pat") {
@@ -107,6 +169,7 @@ export function summarizeCredential(env) {
 }
 
 export async function discoverGitHubRepositories(env, fetchImpl = fetch) {
+  if (env?.GITHUB_DISCOVERY_AUTH_MODE === "catalog") return discoverInstalledCatalog(env);
   const { token, principal: mode, summary: credential } = await resolveDiscoveryCredential(env);
   const path = mode === "installation" ? "/installation/repositories" : "/user/repos";
   const repos = [];
