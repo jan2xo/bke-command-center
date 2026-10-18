@@ -107,6 +107,9 @@ test("broker RPC reports only fixed non-sensitive upstream categories", async ()
     ["GITHUB_APP_PERMISSION_REQUIRED:contents=read;granted=none", "GITHUB_CATALOG_INSTALLATION_SCOPE_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_REJECTED", "GITHUB_CATALOG_TOKEN_ISSUANCE_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_SCOPE_INVALID", "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_BEARER_INVALID", "GITHUB_CATALOG_TOKEN_BEARER_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_EXPIRY_INVALID", "GITHUB_CATALOG_TOKEN_EXPIRY_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_GRANT_INVALID", "GITHUB_CATALOG_TOKEN_GRANT_REJECTED"],
     ["ADMIN_CATALOG_REPOSITORIES_UNAVAILABLE", "GITHUB_CATALOG_PROVIDER_UNAVAILABLE"],
     ["ADMIN_CATALOG_REPOSITORIES_INVALID", "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID"],
     ["ADMIN_CATALOG_DUPLICATE_REPOSITORY", "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID"],
@@ -134,6 +137,9 @@ test("unexpected RPC errors, provider secrets and personal details are always hi
     "GITHUB_APP_INSTALLATION_RESOLUTION_FAILED:200",
     "GITHUB_APP_PERMISSION_REQUIRED:contents=write;granted=private",
     "ADMIN_CATALOG_TOKEN_SCOPE_INVALID " + "x".repeat(300),
+    "ADMIN_CATALOG_TOKEN_BEARER_INVALID: ghs_fakeTOKEN",
+    "ADMIN_CATALOG_TOKEN_GRANT_INVALID\n metadata write",
+    "ADMIN_CATALOG_TOKEN_EXPIRY_INVALID " + "x".repeat(301),
     null,
     {message: {private: "ghs_secret"}},
     {message: "GITHUB_CATALOG_PROVIDER_UNAVAILABLE: admin@example.test"},
@@ -156,4 +162,30 @@ test("known RPC serialization prefix maps to fixed error code only", () => {
     "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED");
   assert.equal(safeCatalogBrokerFailure({message:"ghs_sensitive_token"}),
     "GITHUB_CATALOG_BROKER_UNAVAILABLE");
+});
+
+test("three catalog token stages are safe fixed categories with no fallback to PAT", async () => {
+  const errors = [
+    ["ADMIN_CATALOG_TOKEN_BEARER_INVALID", "GITHUB_CATALOG_TOKEN_BEARER_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_EXPIRY_INVALID", "GITHUB_CATALOG_TOKEN_EXPIRY_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_GRANT_INVALID", "GITHUB_CATALOG_TOKEN_GRANT_REJECTED"],
+  ];
+  for (const [cause, expected] of errors) {
+    const { env, seen } = fixture();
+    let directCalls = 0;
+    env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories = async request => {
+      seen.push(request);
+      throw new Error(cause);
+    };
+    await assert.rejects(
+      () => discoverGitHubRepositories(env, async () => { directCalls++; throw Error("PAT forbidden"); }),
+      error => {
+        assert.equal(error.code, expected);
+        assert.doesNotMatch(error.message, /ghs_|metadata|contents|expires_at|admin@example/);
+        return true;
+      },
+    );
+    assert.equal(directCalls, 0);
+    assert.deepEqual(seen, [{ purpose: "admin_installation_repository_catalog" }]);
+  }
 });
