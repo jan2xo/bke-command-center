@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { authorizeAdminAccess, adminAccessConfigured, inspectAdminAccess } from "../src/admin-access.js";
+import { authorizeAdminAccess, adminAccessConfigured, inspectAdminAccess, inspectAdminRuntimeAccess } from "../src/admin-access.js";
 import { discoverGitHubRepositories } from "../src/admin-discovery.js";
 import { handleRequest, preproductionFetch } from "../src/index.js";
 
@@ -131,6 +131,7 @@ test("Admin UI/API deny unsafe methods, reject missing JWT, and never use GET fo
 
 test("Verified Admin GET returns a live GitHub-derived inventory, never its token", async () => {
   const jwt = await signedAccessToken();
+  const platformCtx = { access: { aud: env.BKE_ADMIN_ACCESS_AUD, async getIdentity() { return { email: "admin@example.test" }; } } };
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options) => {
@@ -145,7 +146,7 @@ test("Verified Admin GET returns a live GitHub-derived inventory, never its toke
   try {
     const response = await preproductionFetch(request(jwt, "/api/admin/discovery"), {
       ...env, BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true",
-    });
+    }, platformCtx);
     assert.equal(response.status, 200);
     const state = await response.json();
     assert.equal(state.total_visible, 1);
@@ -154,12 +155,12 @@ test("Verified Admin GET returns a live GitHub-derived inventory, never its toke
     assert.equal(state.credential.auto_rotation, false);
     const html = await preproductionFetch(request(jwt, "/admin"), {
       ...env, BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true",
-    });
+    }, platformCtx);
     assert.equal(html.status, 200);
     const text = await html.text();
     assert.match(text, /BKE_RENDER_DOCK/);
     assert.doesNotMatch(text, /test-provider-credential/);
-    assert.equal(calls.length, 4); // Access JWKS + GitHub for each request.
+    assert.equal(calls.length, 2); // GitHub only: ctx.access needs no remote JWKS requests.
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -187,33 +188,61 @@ test("Admin JWT denial stages never contain identity, token bytes, issuer or key
   assert.equal(await inspectAdminAccess(request(jwt), env, jwksFetch, webcrypto), "AUTHORIZED");
 });
 
-test("Admin protected endpoint emits only coarse denial buckets, never allowlist or JWT", async () => {
-  const originalFetch = globalThis.fetch;
+test("Admin rejects missing or forged platform context even when a valid JWT header exists", async () => {
+  const signed = await signedAccessToken();
+  const before = globalThis.fetch;
+  let providerCalls = 0;
   try {
-    const preproductionEnv = {...env,BKE_PREPRODUCTION:"true",BKE_ACCESS_POLICY_VERIFIED:"true"};
-    let response = await preproductionFetch(request("","/api/admin/discovery"), preproductionEnv);
-    assert.equal(response.status,403);
-    assert.deepEqual(await response.json(), {
-      error:"ADMIN_ACCESS_DENIED",auth_stage:"EDGE_JWT_MISSING"
+    globalThis.fetch = async () => { providerCalls++; throw Error("provider MUST NOT be reached"); };
+    const preproductionEnv = { ...env, BKE_PREPRODUCTION: "true", BKE_ACCESS_POLICY_VERIFIED: "true" };
+    const missing = await preproductionFetch(request(signed, "/api/admin/discovery"), preproductionEnv);
+    assert.equal(missing.status, 403);
+    assert.deepEqual(await missing.json(), {
+      error: "ADMIN_ACCESS_DENIED",
+      auth_stage: "EDGE_ACCESS_CONTEXT_MISSING",
     });
-    response = await preproductionFetch(request("junk","/api/admin/discovery"), preproductionEnv);
-    assert.deepEqual(await response.json(), {
-      error:"ADMIN_ACCESS_DENIED",auth_stage:"JWT_REJECTED"
-    });
-    const signed = await signedAccessToken();
-    globalThis.fetch = async () => new Response("upstream denied",{status:403});
-    response = await preproductionFetch(request(signed,"/api/admin/discovery"),preproductionEnv);
-    assert.deepEqual(await response.json(), {
-      error:"ADMIN_ACCESS_DENIED",auth_stage:"VERIFICATION_KEY_UNAVAILABLE"
-    });
-    globalThis.fetch = jwksFetch;
-    const changedEmail = await signedAccessToken({ email: "other-identity@example.test" });
-    response = await preproductionFetch(request(changedEmail,"/api/admin/discovery"),preproductionEnv);
-    const body = JSON.stringify(await response.json());
-    assert.match(body,/JWT_REJECTED/);
-    assert.doesNotMatch(body,/admin@example\.test|other-identity|bke-test|ghs_|eyJh|trusted-kid/);
-    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    const fakeHeaderOnly = await preproductionFetch(
+      new Request("https://cc.jl-bke.com/admin", {
+        headers: { "Cf-Access-Jwt-Assertion": signed, "Cf-Access-Authenticated-User-Email": "admin@example.test" },
+      }), preproductionEnv
+    );
+    assert.equal(fakeHeaderOnly.status, 403);
+    assert.equal((await fakeHeaderOnly.json()).auth_stage, "EDGE_ACCESS_CONTEXT_MISSING");
+    assert.equal(providerCalls, 0);
   } finally {
-    globalThis.fetch = originalFetch;
+    globalThis.fetch = before;
+  }
+});
+
+test("Platform Access enforces exact audience and allowlist independently of JWT headers", async () => {
+  const valid = { aud: env.BKE_ADMIN_ACCESS_AUD, async getIdentity() { return { email: "ADMIN@EXAMPLE.TEST" }; } };
+  assert.equal(await inspectAdminRuntimeAccess({access:valid}, env), "AUTHORIZED");
+  assert.equal(await inspectAdminRuntimeAccess(undefined, env), "EDGE_ACCESS_CONTEXT_MISSING");
+  assert.equal(await inspectAdminRuntimeAccess({access:{}}, env), "EDGE_ACCESS_CONTEXT_MISSING");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, aud:"different" }}, env), "ACCESS_AUDIENCE_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, aud:[env.BKE_ADMIN_ACCESS_AUD] }}, env), "ACCESS_AUDIENCE_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, getIdentity:async()=>({email:"other@example.test"}) }}, env), "ACCESS_IDENTITY_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, getIdentity:async()=>({email:null}) }}, env), "ACCESS_IDENTITY_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, getIdentity:async()=>({email:"not-an-email"}) }}, env), "ACCESS_IDENTITY_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:{ ...valid, getIdentity:async()=>{throw Error("private Access failure");} }}, env), "ACCESS_IDENTITY_UNAVAILABLE");
+  assert.equal(await inspectAdminRuntimeAccess({access:valid}, { ...env, BKE_ADMIN_EMAILS:"other@example.test" }), "ACCESS_IDENTITY_REJECTED");
+  assert.equal(await inspectAdminRuntimeAccess({access:valid}, { ...env, BKE_ADMIN_DISCOVERY_ENABLED:"false" }), "CONFIG_REJECTED");
+});
+
+test("Denied Admin response contains no private Access identity or signing details", async () => {
+  const envPre = { ...env, BKE_PREPRODUCTION:"true", BKE_ACCESS_POLICY_VERIFIED:"true" };
+  const invalid = [
+    { ctx:undefined, expected:"EDGE_ACCESS_CONTEXT_MISSING" },
+    { ctx:{access:{aud:"wrong",getIdentity:async()=>({email:"admin@example.test"})}}, expected:"ACCESS_IDENTITY_REJECTED" },
+    { ctx:{access:{aud:env.BKE_ADMIN_ACCESS_AUD,getIdentity:async()=>({email:"wrong@example.test"})}}, expected:"ACCESS_IDENTITY_REJECTED" },
+    { ctx:{access:{aud:env.BKE_ADMIN_ACCESS_AUD,getIdentity:async()=>{throw Error("private");}}}, expected:"VERIFIED_IDENTITY_UNAVAILABLE" },
+  ];
+  for (const {ctx,expected} of invalid) {
+    const response = await preproductionFetch(request("foo", "/api/admin/discovery"), envPre, ctx);
+    assert.equal(response.status,403);
+    const value = await response.json();
+    assert.deepEqual(value, {error:"ADMIN_ACCESS_DENIED",auth_stage:expected});
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.doesNotMatch(JSON.stringify(value), /admin@example|wrong@example|bke-test|ghs_|private|trusted-kid/);
   }
 });
