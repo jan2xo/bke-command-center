@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverGitHubRepositories } from "../src/admin-discovery.js";
+import { discoverGitHubRepositories, safeCatalogBrokerFailure } from "../src/admin-discovery.js";
 import { handleRequest } from "../src/index.js";
 
 const repo = (id, name) => ({
@@ -95,4 +95,65 @@ test("catalog never accepts a worker wake, and unverified Admin cannot call priv
       BKE_ADMIN_EMAILS: "admin@example.test" }, () => ({}));
   assert.equal(notAuthenticated.status, 403);
   assert.equal(calls, 0);
+});
+
+test("broker RPC reports only fixed non-sensitive upstream categories", async () => {
+  const expected = [
+    ["ADMIN_CATALOG_LOCKED", "GITHUB_CATALOG_DISABLED"],
+    ["ADMIN_CATALOG_PURPOSE_INVALID", "GITHUB_CATALOG_REQUEST_REJECTED"],
+    ["GITHUB_APP_ID_UNCONFIGURED", "GITHUB_CATALOG_APP_CONFIGURATION_UNAVAILABLE"],
+    ["GITHUB_APP_PRIVATE_KEY_UNCONFIGURED", "GITHUB_CATALOG_APP_CONFIGURATION_UNAVAILABLE"],
+    ["GITHUB_APP_INSTALLATION_RESOLUTION_FAILED:404", "GITHUB_CATALOG_INSTALLATION_UNAVAILABLE"],
+    ["GITHUB_APP_PERMISSION_REQUIRED:contents=read;granted=none", "GITHUB_CATALOG_INSTALLATION_SCOPE_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_REJECTED", "GITHUB_CATALOG_TOKEN_ISSUANCE_REJECTED"],
+    ["ADMIN_CATALOG_TOKEN_SCOPE_INVALID", "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED"],
+    ["ADMIN_CATALOG_REPOSITORIES_UNAVAILABLE", "GITHUB_CATALOG_PROVIDER_UNAVAILABLE"],
+    ["ADMIN_CATALOG_REPOSITORIES_INVALID", "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID"],
+    ["ADMIN_CATALOG_DUPLICATE_REPOSITORY", "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID"],
+    ["ADMIN_CATALOG_RESULT_INVALID", "GITHUB_CATALOG_PROVIDER_RESPONSE_INVALID"],
+  ];
+  for (const [error, safe] of expected) {
+    assert.equal(safeCatalogBrokerFailure(new Error(error)), safe);
+    const {env} = fixture();
+    env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories = async () => {
+      throw new Error(error);
+    };
+    await assert.rejects(() => discoverGitHubRepositories(env), e => {
+      assert.equal(e.code, safe);
+      assert.equal(e.message, safe);
+      return true;
+    });
+  }
+});
+
+test("unexpected RPC errors, provider secrets and personal details are always hidden", async () => {
+  const errors = [
+    "GitHub ghs_fakeTOKEN admin@example.test \n /private/key",
+    "ADMIN_CATALOG_LOCKED: ghs_fakeTOKEN",
+    "Error: ADMIN_CATALOG_LOCKED\nrandom-private-data",
+    "GITHUB_APP_INSTALLATION_RESOLUTION_FAILED:200",
+    "GITHUB_APP_PERMISSION_REQUIRED:contents=write;granted=private",
+    "ADMIN_CATALOG_TOKEN_SCOPE_INVALID " + "x".repeat(300),
+    null,
+    {message: {private: "ghs_secret"}},
+    {message: "GITHUB_CATALOG_PROVIDER_UNAVAILABLE: admin@example.test"},
+  ];
+  for (const thrown of errors) {
+    const { env } = fixture();
+    env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories = async () => { throw thrown; };
+    await assert.rejects(() => discoverGitHubRepositories(env), e => {
+      assert.equal(e.code, "GITHUB_CATALOG_BROKER_UNAVAILABLE");
+      assert.doesNotMatch(e.message, /ghs_|@|private|\/key|secret|\n/);
+      return true;
+    });
+  }
+});
+
+test("known RPC serialization prefix maps to fixed error code only", () => {
+  assert.equal(safeCatalogBrokerFailure(new Error("Error: ADMIN_CATALOG_LOCKED")),
+    "GITHUB_CATALOG_DISABLED");
+  assert.equal(safeCatalogBrokerFailure({message:"ADMIN_CATALOG_TOKEN_SCOPE_INVALID"}),
+    "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED");
+  assert.equal(safeCatalogBrokerFailure({message:"ghs_sensitive_token"}),
+    "GITHUB_CATALOG_BROKER_UNAVAILABLE");
 });
