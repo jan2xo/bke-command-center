@@ -53,7 +53,7 @@ async function discoverInstalledCatalog(env) {
   if (typeof rpc !== "function") throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
   let payload;
   try {
-    payload = await rpc.call(env.BKE_GITHUB_READ_BROKER, CATALOG_PURPOSE);
+    payload = await env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories(CATALOG_PURPOSE);
   } catch {
     throw new AdminDiscoveryError("GITHUB_CATALOG_BROKER_UNAVAILABLE");
   }
