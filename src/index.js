@@ -4,7 +4,7 @@ import { dashboardState, renderDashboard } from "./dashboard.js";
 import { failureDetailState, renderFailureDetail, recentFailureExcerptState } from "./failure-details.js";
 import { evidenceFailure } from "./github-evidence-error.js";
 import { githubQuotaState } from "./github-quota.js";
-import { adminAccessConfigured, authorizeAdminAccess } from "./admin-access.js";
+import { adminAccessConfigured, inspectAdminAccess } from "./admin-access.js";
 import { AdminDiscoveryError, discoverGitHubRepositories } from "./admin-discovery.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -107,8 +107,17 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
     if (url.pathname === "/admin" || url.pathname === "/api/admin/discovery") {
       if (request.method !== "GET") return noStoreJson({ error: "METHOD_NOT_ALLOWED" }, 405);
       if (!adminAccessConfigured(env)) return noStoreJson({ error: "ADMIN_DISCOVERY_NOT_ENABLED" }, 404);
-      if (!await authorizeAdminAccess(request, env)) {
-        return noStoreJson({ error: "ADMIN_ACCESS_DENIED" }, 403);
+      const authStage = await inspectAdminAccess(request, env);
+      if (authStage !== "AUTHORIZED") {
+        // Publicly visible buckets intentionally combine invalid signature,
+        // mismatched allowlist/claims and malformed JWT: never expose
+        // which identity, issuer, AUD or key a forged token may have guessed.
+        const diagnostic = authStage === "EDGE_JWT_MISSING"
+          ? "EDGE_JWT_MISSING"
+          : ["JWKS_UNAVAILABLE", "JWKS_KEY_NOT_FOUND", "JWKS_KEY_INVALID"].includes(authStage)
+            ? "VERIFICATION_KEY_UNAVAILABLE"
+            : "JWT_REJECTED";
+        return noStoreJson({ error: "ADMIN_ACCESS_DENIED", auth_stage: diagnostic }, 403);
       }
       let discovery;
       try {
