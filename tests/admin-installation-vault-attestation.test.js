@@ -238,3 +238,14 @@ test("HTTP entrypoint remains disconnected and routing feature remains OFF in Wr
   assert.doesNotMatch(wrangler, /BKE_ADMIN_DO_ROUTING_ENABLED/u);
   assert.doesNotMatch(wrangler, /BKE_PAIRING_RPC_KEY_B64/u);
 });
+
+test("Cloudflare runtime entrypoint extends DurableObject and exports only safe RPC", () => {
+  const wrangler = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const entry = readFileSync(new URL("../src/cloudflare-worker-entry.js", import.meta.url), "utf8");
+  assert.match(wrangler, /^main = "src\/cloudflare-worker-entry\.js"$/mu);
+  assert.match(entry, /import \{ DurableObject \} from "cloudflare:workers"/u);
+  assert.match(entry, /export class BkeWorkerPairingVault extends DurableObject/u);
+  assert.match(entry, /super\(ctx, env\)/u);
+  assert.match(entry, /async attestInstallation\(request\)/u);
+  assert.doesNotMatch(entry, /async (finalize|issue|pair|revoke|dispatch)\w*\(/u);
+});
