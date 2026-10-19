@@ -103,6 +103,25 @@ test('missing owner-pinned attestor, malformed pin, outage, expired binding fail
  f.mutate(v=>v);f.setTime(T+30_001);await assert.rejects(fn(f.link));
 });
 
+test('private attestor timeout and invalid elliptic key fail closed without retry',async()=>{
+ const f=await fixture();
+ let attempts=0;
+ const stalled=createPinnedDevicePeerAuthorizer({
+   pinnedPublicKey:f.trust,
+   requestSignedBinding:()=>{attempts++;return new Promise(()=>{});},
+   cryptoImpl:webcrypto,clock:()=>T,timeoutMs:100,
+ });
+ await assert.rejects(stalled(f.link),/PRIVATE_ATTESTOR_UNAVAILABLE/);
+ assert.equal(attempts,1);
+ const invalidPoint={...f.trust,x:'A'.repeat(43),y:'A'.repeat(43)};
+ const invalid=createPinnedDevicePeerAuthorizer({
+   pinnedPublicKey:invalidPoint,requestSignedBinding:()=>{attempts++;return {};},
+   cryptoImpl:webcrypto,clock:()=>T,
+ });
+ await assert.rejects(invalid(f.link),/PRIVATE_ATTESTOR_KEY_INVALID/);
+ assert.equal(attempts,1);
+});
+
 test('non-canonical signatures, malformed nonces and shape smuggling are blocked',async()=>{
  const f=await fixture(); const fn=f.authorizer();
  for(const mutation of [
