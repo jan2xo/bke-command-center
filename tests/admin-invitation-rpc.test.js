@@ -155,6 +155,7 @@ test("platform Access + two independent broker reads + signed DO issues consent/
   assert.equal(f.issued.length,1);
   assert.match(f.issued[0].human_ticket.one_time_nonce,/^[a-f0-9]{64}$/u);
   assert.ok(!JSON.stringify(receipt).includes(f.issued[0].human_ticket.one_time_nonce));
+  assert.ok(!JSON.stringify(receipt).includes(f.issued[0].device_challenge.message));
   assert.equal(f.db("51").read("consents")[0].status,"CONSUMED");
   assert.equal(f.db("51").read("pending").length,1);
   assert.equal(f.db("51").read("admin_actions")[0].status,"PENDING");
@@ -300,6 +301,19 @@ test("malformed, unconfirmed and expired human consents cannot issue invitation"
     {public_key:{...p.public_key,evil:"1"}},
   ])denied(await f.send({...p,...changes}));
   assert.equal(f.db("51").read("consents")[0].status,"CONFIRMED");
+  const storageKey="bke:pairing:v1:consents";
+  await f.db("51").transaction(async tx=>{
+    const rows=await tx.get(storageKey);
+    await tx.put(storageKey,rows.map(r=>({...r,status:"PENDING"})));
+  });
+  denied(await f.send(p));
+  await f.db("51").transaction(async tx=>{
+    const rows=await tx.get(storageKey);
+    await tx.put(storageKey,rows.map(r=>({...r,status:"CONFIRMED",
+      expires_at_ms:Date.now()-1})));
+  });
+  denied(await f.send(p));
+  assert.equal(f.db("51").read("pending"),undefined);
 });
 
 test("separate installations can independently invite same worker with separate DO state",async()=>{
