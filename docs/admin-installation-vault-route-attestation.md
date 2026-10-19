@@ -23,3 +23,9 @@ The test suite simulates a Durable Object namespace and `ctx.id` and uses a disp
 The new routing feature flag and HMAC key are **absent from Wrangler**. Source merge must NOT deploy the Worker, install secrets, enable pairing/relay or change GitHub App permissions. Actual secret provisioning or PREPRODUCTION rollout requires separately explicit authorization and human Admin validation. Production stays locked. Browser authentication, OAuth/MFA/CAPTCHA and parked Android PR #90 must not be automated or awakened.
 
 The next independent implementation, after certification, is **protected pairing RPC authority and real Cloudflare SQLite DO runtime testing** with exact-head ownership and one-time human consent coupled to the actual operation. No operator action is required for the inert source-only PR.
+
+## Cloudflare RPC compatibility check
+
+Cloudflare documents that named Durable Object RPC methods require a class **extending `DurableObject`** from `cloudflare:workers`. To meet this runtime contract without breaking existing Node tests, the PREPRODUCTION Wrangler entrypoint is now `src/cloudflare-worker-entry.js`. It retains the exact existing default HTTP handler from `src/index.js` and re-exports a real `BkeWorkerPairingVault extends DurableObject` wrapper. That wrapper calls `super(ctx,env)` and exposes ONLY read-only `attestInstallation` and the existing 404 `fetch`, delegating to the Node-testable inner vault logic. No pairing, ticket, renewal or lease RPC is added. Wrangler dry-run validates compilation but does not prove live RPC binding.
+
+Reference: https://developers.cloudflare.com/durable-objects/best-practices/create-durable-object-stubs-and-send-requests/
