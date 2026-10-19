@@ -1,0 +1,27 @@
+# Guarded human proposal review and consent transport — SOURCE ONLY
+
+Parent [Issue #30](https://github.com/jan2xo/bke-command-center/issues/30). Builds on merged PRs #51 (one-use consent), #52 (atomic consent+invitation), #53 (signed private invitation DO call). This PR adds the independent human presentation/confirmation seam but does NOT add a device-origin proposal provider, activate a route in Cloudflare, enroll any device, or distribute an invitation.
+
+## HTTP and prepared-proposal boundary
+
+`handleRequest(request,env,...,executionCtx,pairingReviewServer)` recognizes GET `/admin/pairing/review` and POST `/api/admin/pairing/confirm-proposal`, but ALWAYS denies without BOTH a separate default-OFF `BKE_ADMIN_PAIRING_REVIEW_ENABLED=true` and a trusted server-only `pairingReviewServer.loadPreparedProposal` adapter. That adapter is absent from the deployed Cloudflare Worker entry. Its only source must be a separately certified authenticated device/proposal ingress. Browser query strings and JSON cannot create an offer, select a GitHub installation or supply an Admin subject.
+
+GET requires Cloudflare platform-provided Access context and an allowlisted human, requests a *server-prepared* exact worker/P-256 public key/three resource fingerprints, and invokes the private signed installation Durable Object presentation RPC. The HTML displays the worker ID, device public key SHA-256 thumbprint, all three SHA-256 resource fingerprints and readable **server-authored** display labels, plus the canonical proposal SHA-256 and 60-second approval timeout. Human-facing labels are not independently proven by the digest; the original resource fingerprints are shown for comparison. Public key shape and curve are validated, but possession is **NOT** proven at this stage. The page marks consent as NOT a worker lease or pairing.
+
+All display text is HTML-escaped. The inline script is nonce-scoped by a restrictive CSP. The page and confirmations use no-store, nosniff and no-referrer; no Admin email, installation ID, ticket nonce or credentials are emitted. Human must type the matching worker ID and click a button; a browser Fetch POST sends exactly five allowed consent fields. No automatic approval.
+
+POST requires actual platform Access context, exact fixed URL, POST, same-origin Origin and Fetch Metadata, JSON Content-Type, a bounded body (at most 1024 bytes), exact action/work ID/digest/challenge and typed matching worker ID. CSRF, wrong/unknown human, changed proposal, replay, invalid fields and expired consent fail closed. A successful response is only `CONFIRMED_FOR_ATOMIC_ISSUANCE`, not an invitation, device registration or active worker.
+
+## Private signed DO boundary
+
+`sendAdminPairingConsent` recovers strict GitHub App installation evidence through the existing trusted broker, validates the platform human identity and reuses the EXACT keyed human-subject domain of PR #48/#53. It signs a separate purpose-separated HMAC envelope with installation, worker/proposal or confirmation fields, human subject, random nonce and 30-second expiry. A named method `reviewPairingConsent` on the installation Durable Object receives this command (no DO public `fetch` path). The receiver independently verifies signed purpose/schema/HMAC/expiry/actual DO ID, freshly re-reads strict broker inventory, and rejects inconsistent installations or already assigned worker IDs. NON_ATOMIC_ENUMERATION remains observational, not worker PR reservation.
+
+The receiver reuses `createAdminProposalConsent` original durable SQLite `consents` key through new narrowly scoped internal `presentFromVerifiedRpc` and `confirmFromVerifiedRpc` methods. These methods are callable only after authenticated private DO verification; there is no fabricated Cloudflare Access object inside the DO. The confirmation method reconstructs the exact validated POST from HMAC-protected fields, then applies the existing origin/Fetch Metadata/JSON checks before changing one unique `PENDING` consent to `CONFIRMED`.
+
+A consumed approval remains a tombstone until its original 60-second expiry, so an intercepted signed presentation command cannot mint another consent while its own 30-second HMAC expiry is live. No client data can mark `CONSUMED`; only PR #52's eventual atomic invitation transaction may do that. Storage failures roll back. A broker/RPC uncertainty is blocked without automatic retry or untrusted fallback.
+
+## Certification and next dependencies
+
+Required full exact-head Command Center CI: `npm ci`, all Node tests, `npm run check`, Wrangler PREPRODUCTION dry-run and **real local Workerd/SQLite four-key smoke**, plus changed-file security review. Tests exercise human-readable page, same-origin POST, double-confirm race, forged Access, XSS escaping/CSP, changing worker/digest, signed tamper, cross-installation, GitHub conflicts/outage, consumed-presentation replay, write rollback and default-OFF runtime.
+
+Remaining dependencies are intentionally separate: server-prepared proposal sourcing from an authenticated device channel, owner-authorized live Cloudflare Access and PREPRODUCTION activation, secure delivery of the 120-second P-256 device challenge, server-only ticket handling, device proof and protected inactive pairing, active worker leases/exclusive GitHub claim, desktop/Android liveness. Nothing is deployed or live-enabled, no secrets/GitHub App permissions are modified, and Worker #90 remains parked. Production remains locked.

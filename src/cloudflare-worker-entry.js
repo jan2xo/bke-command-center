@@ -30,6 +30,11 @@ export class BkeWorkerPairingVault extends DurableObject {
     return this.#logic.issueAtomicPairingInvitation(request);
   }
 
+  // Named private HMAC RPC only, never an HTTP enrollment endpoint.
+  async reviewPairingConsent(command) {
+    return this.#logic.reviewPairingConsent(command);
+  }
+
   async fetch(request) {
     return this.#logic.fetch(request);
   }

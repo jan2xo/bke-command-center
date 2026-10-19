@@ -171,5 +171,8 @@ test("PREPRODUCTION-only migration is staged but runtime pairing flag/route is a
   assert.match(config,/\[\[env\.preproduction\.durable_objects\.bindings\]\]/u);
   assert.match(config,/new_sqlite_classes\s*=\s*\["BkeWorkerPairingVault"\]/u);
   assert.doesNotMatch(config,/BKE_PAIRING_ENABLED\s*=\s*"true"/u);
-  assert.doesNotMatch(index,/\/api\/admin\/pairing/u);
+  // The new source-only review route requires an injected trusted adapter,
+  // with its feature latch deliberately absent from the deployed configuration.
+  assert.match(index,/server: pairingReviewServer/u);
+  assert.doesNotMatch(config,/BKE_ADMIN_PAIRING_REVIEW_ENABLED/u);
 });

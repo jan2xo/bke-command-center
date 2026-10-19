@@ -7,6 +7,7 @@ import { githubQuotaState } from "./github-quota.js";
 import { adminAccessConfigured, inspectAdminRuntimeAccess } from "./admin-access.js";
 import { AdminDiscoveryError, discoverGitHubRepositories } from "./admin-discovery.js";
 import { AdminWorkerAssignmentError, readAdminWorkerAssignments, publicWorkerAssignmentProjection } from "./admin-worker-assignments.js";
+import { handleAdminPairingReview } from "./admin-pairing-review.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -98,10 +99,18 @@ function failureJobIds(state) {
   return ids;
 }
 
-export async function handleRequest(request, env, createAdapter = createGitHubAdapter, executionCtx) {
+export async function handleRequest(request, env, createAdapter = createGitHubAdapter, executionCtx, pairingReviewServer = null) {
   const url = new URL(request.url);
   const gh = createAdapter(env);
   try {
+    // Explicit source-only HTTP seam. Without a trusted server-prepared
+    // proposal adapter this ALWAYS returns 404 even if flags are set.
+    if (url.pathname === "/admin/pairing/review" ||
+        url.pathname === "/api/admin/pairing/confirm-proposal") {
+      return handleAdminPairingReview({
+        request, env, executionCtx, server: pairingReviewServer,
+      });
+    }
     // Admin-only PREPRODUCTION source discovery. DISABLED unless explicitly
     // configured. Verified Access signature + allowlisted person required.
     // No API writes and no credential materials ever returned to the client.
