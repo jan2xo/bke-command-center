@@ -247,12 +247,18 @@ export async function stageDeviceOriginProposal({
   let raw;
   try{raw=await deviceBridge.readCandidate();}
   catch{return blocked("PREPARATION_DEVICE_UNAVAILABLE");}
-  if(!exact(raw,"display,public_key,resources,signChallenge,worker_id") ||
+  if(!exact(raw,"public_key,resources,signChallenge,worker_id") ||
     typeof raw.signChallenge!=="function")
     return blocked("PREPARATION_DEVICE_INVALID");
+  let display;
+  try {
+    display=await describeResources(Object.freeze({
+      worker_id:raw.worker_id,resources:structuredClone(raw.resources),
+    }),executionCtx,env);
+  } catch {return blocked("PREPARATION_DISPLAY_AUTHORITY_UNAVAILABLE");}
   const offer=await normalizeOffer({
     worker_id:raw.worker_id,public_key:raw.public_key,
-    resources:raw.resources,display:raw.display,
+    resources:raw.resources,display,
   },auth.id,cryptoImpl);
   if(!offer)return blocked("PREPARATION_DEVICE_INVALID");
   const nonce=new Uint8Array(32);
