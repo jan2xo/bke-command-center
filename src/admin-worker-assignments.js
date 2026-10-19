@@ -41,6 +41,12 @@ export async function readAdminWorkerAssignments(env, executionCtx) {
     // No upstream exception, token, GitHub URL or credential bytes in response.
     fail("ADMIN_ASSIGNMENT_BROKER_UNAVAILABLE");
   }
+  return parseTrustedWorkerAssignmentPayload(payload);
+}
+
+// Same strict broker projection for authenticated Admin and the internal DO.
+// A raw RPC result is data, never an assertion of access or pairing authority.
+export function parseTrustedWorkerAssignmentPayload(payload) {
   if (!exactKeys(payload,
     "authority,consistency,enumerated_open_pull_requests,installation_id,principal,repository_scope,total_visible_repositories,worker_assignments") ||
       payload.authority !== "EXISTING_GITHUB_APP_INSTALLATION" ||
