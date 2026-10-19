@@ -377,3 +377,22 @@ test("unsigned or altered private DO reply never becomes a prepared candidate",a
   }});
   assert.equal(await f.loader(),null);
 });
+
+test("missing authoritative descriptions block before device signer runs",async()=>{
+  const f=await fixture();
+  blocked(await f.sender({describeResources:undefined}));
+  assert.equal(f.meta.bridgeCalls,0);
+  blocked(await f.sender({describeResources:async()=>({
+    chatgpt_target:"<script>",browser_profile:"",bridge_identity:"untrusted",
+  })}));
+  assert.equal(f.db("51").get("prepared"),undefined);
+});
+
+test("corrupt existing consent registry fails closed before staging",async()=>{
+  const f=await fixture();
+  await f.db("51").transaction(tx=>tx.put("bke:pairing:v1:consents",[
+    {worker_id:"other-worker",expires_at_ms:f.meta.now+40000,status:"CONFIRMED"},
+  ]));
+  blocked(await f.sender());
+  assert.equal(f.db("51").get("prepared"),undefined);
+});
