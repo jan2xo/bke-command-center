@@ -1,6 +1,6 @@
 // Cloudflare-only runtime bridge. Keep Node's source/test entrypoint free
 // of cloudflare:workers imports; Wrangler bundles this module for PREPRODUCTION.
-// No pairing RPC, worker wake, lease, or other sensitive mutable method here.
+// No public pairing HTTP route, worker wake, lease, or active-worker method.
 import { DurableObject } from "cloudflare:workers";
 import commandCenter from "./index.js";
 import { BkeWorkerPairingVault as VaultLogic } from "./worker-pairing-durable-store.js";
@@ -14,7 +14,7 @@ export class BkeWorkerPairingVault extends DurableObject {
     this.#logic = new VaultLogic(ctx, env);
   }
 
-  // ONLY named RPC exported to callers. Authenticated and read-only.
+  // Read-only routing attestation; distinct from the guarded inactive finalizer.
   async attestInstallation(request) {
     return this.#logic.attestInstallation(request);
   }
