@@ -53,26 +53,42 @@ export function privateAttestorMessage(requestNonce, binding) {
  */
 export function createPinnedDevicePeerAuthorizer({
   pinnedPublicKey, requestSignedBinding, cryptoImpl = crypto, clock = () => Date.now(),
+  timeoutMs = 10_000,
 } = {}) {
   if (!isKey(pinnedPublicKey) || typeof requestSignedBinding !== 'function' ||
       typeof cryptoImpl?.subtle?.importKey !== 'function' ||
       typeof cryptoImpl?.subtle?.verify !== 'function' ||
-      typeof cryptoImpl?.getRandomValues !== 'function') {
+      typeof cryptoImpl?.getRandomValues !== 'function' ||
+      !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 15_000) {
     throw Error('PRIVATE_ATTESTOR_NOT_CONFIGURED');
   }
   const lockedKey = structuredClone(pinnedPublicKey);
-  const keyPromise = cryptoImpl.subtle.importKey('jwk', lockedKey,
-    {name:'ECDSA', namedCurve:'P-256'}, false, ['verify']);
+  // Consume an invalid-point import rejection immediately: no unhandled
+  // promise or delayed crash if a server pin is configured incorrectly.
+  let keyPromise;
+  try {
+    keyPromise = Promise.resolve(cryptoImpl.subtle.importKey('jwk', lockedKey,
+      {name:'ECDSA', namedCurve:'P-256'}, false, ['verify'])).catch(() => null);
+  } catch { throw Error('PRIVATE_ATTESTOR_KEY_INVALID'); }
   return async function authorizePeer(link) {
     const start = safeTime(clock);
     if (start === null || !link || typeof link !== 'object') throw Error('PRIVATE_ATTESTOR_LINK_INVALID');
+    if (!await keyPromise) throw Error('PRIVATE_ATTESTOR_KEY_INVALID');
     const randomness = new Uint8Array(32);
     cryptoImpl.getRandomValues(randomness);
     const nonce = bytesToUrl(randomness);
-    let response;
+    let response, timer;
     try {
-      response = await requestSignedBinding(link, Object.freeze({version:1,request_nonce:nonce}));
+      response = await Promise.race([
+        Promise.resolve().then(() => requestSignedBinding(link,
+          Object.freeze({version:1,request_nonce:nonce}))),
+        new Promise((_,reject) => {
+          timer = setTimeout(() => reject(Error('PRIVATE_ATTESTOR_DEADLINE')),timeoutMs);
+        }),
+      ]);
     } catch { throw Error('PRIVATE_ATTESTOR_UNAVAILABLE'); }
+    finally { if (timer) clearTimeout(timer); }
+    // Timeouts and unknown delivery are never retried here.
     const end = safeTime(clock);
     if (end === null || end < start || end >= start + 30_000 ||
         !exact(response, ENVELOPE_FIELDS) || response.version !== 1 ||
