@@ -369,6 +369,9 @@ export async function receivePreparedDeviceProposal({
       const active=prepared.filter(r=>r.expires_at_ms>now);
       // Never guess which proposal the human meant when multiple are present.
       if(active.length>1)return blocked("PREPARATION_AMBIGUOUS");
+      const paired=(await tx.get("paired"))??[],pending=(await tx.get("pending"))??[];
+      if(!isSafePairedRegistry(paired)||!isSafePendingChallenges(pending))
+        return blocked("PREPARATION_REGISTRY_AMBIGUOUS");
       if(command.kind==="read"){
         if(active.length!==1)return blocked("PREPARATION_NOT_AVAILABLE");
         const current=active[0];
@@ -378,7 +381,9 @@ export async function receivePreparedDeviceProposal({
         },id,cryptoImpl);
         if(!canonical || canonical.proposal_sha256!==current.proposal_sha256 ||
           canonical.identity_public_key_sha256!==current.identity_public_key_sha256 ||
-          snapshot.worker_claims.some(x=>x.worker_id===current.worker_id))
+          snapshot.worker_claims.some(x=>x.worker_id===current.worker_id) ||
+          conflictWith(paired,current) ||
+          conflictWith(pending.filter(r=>r.expires_at_ms>now),current))
           return blocked("PREPARATION_STALE_OR_CONFLICTED");
         return Object.freeze({
           state:"PREPARED_PROPOSAL_OBSERVED",
@@ -390,9 +395,6 @@ export async function receivePreparedDeviceProposal({
       if(active.length!==0)return blocked("PREPARATION_ALREADY_PENDING");
       if(snapshot.worker_claims.some(x=>x.worker_id===offer.worker_id))
         return blocked("PREPARATION_WORKER_ALREADY_ASSIGNED");
-      const paired=(await tx.get("paired"))??[],pending=(await tx.get("pending"))??[];
-      if(!isSafePairedRegistry(paired)||!isSafePendingChallenges(pending))
-        return blocked("PREPARATION_REGISTRY_AMBIGUOUS");
       if(conflictWith(paired,offer)||
         conflictWith(pending.filter(r=>r.expires_at_ms>now),offer))
         return blocked("PREPARATION_RESOURCE_CONFLICT");
