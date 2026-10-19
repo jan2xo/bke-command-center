@@ -7,6 +7,7 @@ const KEY = Object.freeze({
   paired: "bke:pairing:v1:paired",
   pending: "bke:pairing:v1:pending",
   admin_actions: "bke:pairing:v1:admin_actions",
+  consents: "bke:pairing:v1:consents",
 });
 const MAX_ROWS = 100;
 const MAX_SERIALIZED_BYTES = 262_144;

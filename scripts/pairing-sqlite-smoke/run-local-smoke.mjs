@@ -58,7 +58,7 @@ try {
   assert.deepEqual(execution.data, {
     state: "PASS", checks: [
       "installation_isolation", "sequential_sqlite_persistence",
-      "three_key_commit", "three_key_rollback",
+      "four_key_commit", "four_key_rollback",
       "concurrent_transaction_serialization",
     ],
   });
@@ -66,12 +66,12 @@ try {
   assert.equal(later.status, 200, "LOCAL_DO_SECOND_REQUEST_FAILURE");
   assert.deepEqual(later.data, {
     state: "OBSERVED", a_paired_count: 4, b_paired_count: 0,
-    pending_count: 1, admin_actions_count: 1,
+    pending_count: 1, admin_actions_count: 1, consent_count: 1,
   });
   const denied = await response("/unknown");
   assert.equal(denied.status, 404, "LOCAL_DO_UNKNOWN_PATH_NOT_DENIED");
   process.stdout.write("BKE LOCAL SQLITE DURABLE OBJECT SMOKE: PASS\n");
-  process.stdout.write("isolation, persistence, three-key rollback, concurrency, HTTP deny\n");
+  process.stdout.write("isolation, persistence, four-key rollback, concurrency, HTTP deny\n");
 } catch (error) {
   process.stderr.write("BKE LOCAL SQLITE DURABLE OBJECT SMOKE: FAIL\n");
   process.stderr.write(String(error?.message || "UNKNOWN") + "\n");
