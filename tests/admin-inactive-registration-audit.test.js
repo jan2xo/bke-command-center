@@ -169,6 +169,13 @@ test("one serializable transaction sees prior committed revocation, not partial 
  assert.equal(x.db.writes,1); // explicit test mutation ONLY
 });
 
+test("clock regression, excessive delay and transition-to-expired all fail closed",async()=>{
+ for(const sequence of [[AT,AT-1],[AT,AT+30_001],[AT,AT+2_001]]){
+   const x=context([row()],()=>sequence.shift());
+   await denied(x.call);
+ }
+});
+
 test("the new projection is unwired from deployable routes and no public RPC is exposed",()=>{
  const entry=readFileSync(new URL("../src/cloudflare-worker-entry.js",import.meta.url),"utf8");
  const index=readFileSync(new URL("../src/index.js",import.meta.url),"utf8");
