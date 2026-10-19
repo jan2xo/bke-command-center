@@ -35,3 +35,13 @@ GITHUB_REPO = "bke-worker"
 binding = "BKE_GITHUB_READ_BROKER"
 service = "bke-worker-relay-preproduction"
 entrypoint = "CommandCenterReadBroker"
+
+# DORMANT pairing vault source contract — no enrollment RPC/routes exposed.
+# Never deploy without independent PREPRODUCTION security authorization.
+[[env.preproduction.durable_objects.bindings]]
+name = "BKE_WORKER_PAIRING_VAULT"
+class_name = "BkeWorkerPairingVault"
+
+[[env.preproduction.migrations]]
+tag = "pairing-vault-sqlite-v1"
+new_sqlite_classes = ["BkeWorkerPairingVault"]

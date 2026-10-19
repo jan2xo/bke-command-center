@@ -279,3 +279,6 @@ export function preproductionFetch(request, env, executionCtx) {
 }
 
 export default { fetch: preproductionFetch };
+
+// Dormant internal SQLite Durable Object class. No pairing route or callable RPC.
+export { BkeWorkerPairingVault } from "./worker-pairing-durable-store.js";
