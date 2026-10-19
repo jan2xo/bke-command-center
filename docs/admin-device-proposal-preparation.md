@@ -15,3 +15,5 @@ An Admin can only read a prepared proposal through Access and fresh private GitH
 Full exact-head Command Center CI: Node tests, syntax check, Wrangler PREPRODUCTION dry-run and real local Workerd/SQLite FIVE-key commit, rollback, isolation and concurrent persistence smoke. Adversarial Node cases include forged Access, missing bridge, wrong device key, altered fingerprints, tampered HMAC, wrong tenant, stale/duplicate command, competing worker, provider outage, concurrent staging, changed GitHub ownership, storage rollback, and no public endpoint.
 
 This proves source and local runtime only. The actual authenticated device transport is not implemented, device challenge delivery is not implemented, PREPRODUCTION and production activation are locked, no secrets or permissions are changed, and parked Worker PR #90 is untouched.
+
+Human-readable descriptions are instead supplied by a separate required server-owned describeResources callback. An unpaired device cannot provide those labels to the Admin review page.
