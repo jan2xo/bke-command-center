@@ -354,3 +354,25 @@ test("changed GitHub ownership after staging blocks read despite intact signed p
   assert.equal(await f.loader(),null);
   assert.equal(f.db("51").get("prepared").length,1);
 });
+
+test("different allowlisted Admin cannot adopt a device proposal staged by another human",async()=>{
+  const f=await fixture();
+  assert.equal((await f.sender()).state,"PREPARED_FOR_HUMAN_REVIEW");
+  f.env.BKE_ADMIN_EMAILS="admin@example.test,second@example.test";
+  const other={access:{aud:ADMIN.access.aud,
+    async getIdentity(){return {email:"second@example.test"};}}};
+  assert.equal(await f.loader({executionCtx:other}),null);
+  assert.equal((await f.loader())?.worker_id,"worker-a");
+});
+
+test("unsigned or altered private DO reply never becomes a prepared candidate",async()=>{
+  const f=await fixture();
+  assert.equal((await f.sender()).state,"PREPARED_FOR_HUMAN_REVIEW");
+  f.meta.override=()=>({async managePreparedDeviceProposal(){
+    return {state:"PREPARED_PROPOSAL_OBSERVED",
+      worker_id:"worker-a",public_key:f.device().public_key,
+      resources:f.device().resources,display:f.device().display,
+      proposal_sha256:"a".repeat(64),ack_signature:"f".repeat(64)};
+  }});
+  assert.equal(await f.loader(),null);
+});
