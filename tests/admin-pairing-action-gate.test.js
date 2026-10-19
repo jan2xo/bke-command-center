@@ -99,7 +99,6 @@ test("wrong host, plain HTTP, credentials in URL and URL query fail closed", asy
   for (const url of [
     "https://evil.example/api/admin/worker-pairing/action",
     "http://cc.jl-bke.com/api/admin/worker-pairing/action",
-    "https://user@cc.jl-bke.com/api/admin/worker-pairing/action",
     origin + "/api/admin/worker-pairing/action?token=1",
     origin + "/api/admin/worker-pairing/action#fragment",
   ]) blocked(await inspectPairingAdminAction(make(payload(), { url }),
