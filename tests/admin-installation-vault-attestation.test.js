@@ -248,5 +248,8 @@ test("Cloudflare runtime entrypoint extends DurableObject and exports only safe 
   assert.match(entry, /super\(ctx, env\)/u);
   assert.match(entry, /async attestInstallation\(request\)/u);
   assert.match(entry, /async finalizeProtectedInactivePairing\(request\)/u);
-  assert.doesNotMatch(entry, /async (issue|pair|revoke|dispatch|wake)\w*\(/u);
+  // Explicit signed private invitation RPC is allowed; generic action entrypoints are not.
+  assert.match(entry, /async issueAtomicPairingInvitation\(request\)/u);
+  assert.doesNotMatch(entry, /async (pair|revoke|dispatch|wake)\w*\(/u);
+  assert.doesNotMatch(entry, /async issue(?!AtomicPairingInvitation)\w*\(/u);
 });

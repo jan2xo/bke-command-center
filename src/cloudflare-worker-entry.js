@@ -25,6 +25,11 @@ export class BkeWorkerPairingVault extends DurableObject {
     return this.#logic.finalizeProtectedInactivePairing(request);
   }
 
+  // Named private RPC: no corresponding public fetch route.
+  async issueAtomicPairingInvitation(request) {
+    return this.#logic.issueAtomicPairingInvitation(request);
+  }
+
   async fetch(request) {
     return this.#logic.fetch(request);
   }
