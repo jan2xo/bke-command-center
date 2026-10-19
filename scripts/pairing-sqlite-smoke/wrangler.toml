@@ -1,0 +1,17 @@
+# LOCAL TEST FIXTURE ONLY. Never reference from production wrangler.toml.
+name = "bke-pairing-sqlite-local-smoke"
+main = "./worker.js"
+compatibility_date = "2026-10-08"
+workers_dev = false
+preview_urls = false
+
+[vars]
+BKE_SQLITE_SMOKE_FIXTURE = "true"
+
+[[durable_objects.bindings]]
+name = "SMOKE_VAULT"
+class_name = "SmokeVault"
+
+[[migrations]]
+tag = "local-test-sqlite-v1"
+new_sqlite_classes = ["SmokeVault"]
