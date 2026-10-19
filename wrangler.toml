@@ -1,5 +1,5 @@
 name = "bke-command-center"
-main = "src/index.js"
+main = "src/cloudflare-worker-entry.js"
 compatibility_date = "2026-10-08"
 
 # The default Worker has no BKE_PREPRODUCTION marker.
