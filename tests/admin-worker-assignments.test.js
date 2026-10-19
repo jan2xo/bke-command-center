@@ -28,7 +28,7 @@ const stage = {
   BKE_ACCESS_POLICY_VERIFIED: "true",
   BKE_ADMIN_PR_INVENTORY_ENABLED: "true",
   BKE_ADMIN_DISCOVERY_ENABLED: "true",
-  BKE_ADMIN_ACCESS_ISSUER: "https://secure.cloudflareaccess.test",
+  BKE_ADMIN_ACCESS_ISSUER: "https://bke-test.cloudflareaccess.com",
   BKE_ADMIN_ACCESS_AUD: "0123456789abcdef0123456789abcdef",
   BKE_ADMIN_EMAILS: "admin@example.test",
 };
