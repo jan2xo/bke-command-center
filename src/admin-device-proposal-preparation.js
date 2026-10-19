@@ -5,6 +5,7 @@ import { inspectAdminRuntimeAccess } from "./admin-access.js";
 import { readAdminWorkerAssignments,parseTrustedWorkerAssignmentPayload } from "./admin-worker-assignments.js";
 import { computePairingProposalSha256 } from "./admin-atomic-pairing-invitation.js";
 import { isSafePairedRegistry,isSafePendingChallenges } from "./worker-pairing-ceremony.js";
+import { isSafePairingProposalConsents } from "./admin-pairing-proposal-consent.js";
 
 const AUD="bke-command-center/preproduction/device-proposal-preparation/v1";
 const DEVICE_AUD="bke-command-center/preproduction/device-key-possession/v1";
@@ -408,9 +409,7 @@ export async function receivePreparedDeviceProposal({
         conflictWith(pending.filter(r=>r.expires_at_ms>now),offer))
         return blocked("PREPARATION_RESOURCE_CONFLICT");
       const consents=(await tx.get("consents"))??[];
-      if(!Array.isArray(consents)||consents.length>100 ||
-        consents.some(c=>typeof c?.worker_id!=="string" ||
-          !WORKER.test(c.worker_id)||!Number.isSafeInteger(c.expires_at_ms)))
+      if(!isSafePairingProposalConsents(consents))
         return blocked("PREPARATION_CONSENT_REGISTRY_AMBIGUOUS");
       if(consents.some(c=>c.worker_id===offer.worker_id&&c.expires_at_ms>now))
         return blocked("PREPARATION_CONSENT_CONFLICT");
