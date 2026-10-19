@@ -145,14 +145,13 @@ export async function handleAdminPairingReview({
   // Display SHA-256 values from the SAME canonical proposal as signed DO.
   // Only the verified private sender returns a challenge for this exact digest.
   const proposal=await computePairingProposalSha256({
-    installationId:server.trustedInstallationForRendering??"", // never trusted for RPC
+    installationId:"1", // only for installation-independent public-key thumbprint
     workerId:offer.worker_id,publicKey:offer.public_key,
     resources:offer.resources,cryptoImpl,
   });
-  // Actual installation is intentionally hidden from page; the canonical
-  // value comes from signed server response, not this optional render check.
-  if(proposal && proposal.proposalHash!==answer.proposal_sha256)
-    return deny("REVIEW_PROPOSAL_CHANGED",503);
+  // The actual installation-derived approval digest comes solely from the
+  // signed server response. This local computation checks P-256 and key hash.
+  if(!proposal)return deny("REVIEW_PROPOSAL_INVALID",503);
   let nonce;
   try{
     const random=new Uint8Array(16);cryptoImpl.getRandomValues(random);
@@ -160,6 +159,6 @@ export async function handleAdminPairingReview({
       .replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");
   }catch{return deny("REVIEW_RANDOM_UNAVAILABLE",503);}
   return new Response(html({...offer,display:prepared.display,
-    identity_public_key_sha256:proposal?.keyhash??"Refer to proposal digest",
+    identity_public_key_sha256:proposal.keyhash,
   },answer,nonce),{status:200,headers:securityHeaders(nonce)});
 }
