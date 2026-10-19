@@ -1,0 +1,31 @@
+# GitHub installation-scoped Durable Object routing attestation
+
+**SOURCE ONLY, default OFF.** Parent: [Command Center #30](https://github.com/jan2xo/bke-command-center/issues/30); depends on merged CC PRs #39–#46 and Worker #104. This is a **read-only tenant-routing proof**, not actual device pairing, not dispatch authority, not a GitHub PR lock or proof of a real deployed Durable Object.
+
+## What is implemented
+
+- `attestAdminInstallationVault` is an unreferenced **server-only** entrypoint in `src/admin-installation-vault-attestation.js`. It does not accept a browser-chosen worker ID, GitHub repository, installation ID or Durable Object namespace. Before any private RPC, it requires PREPRODUCTION, Access policy and GitHub-PR-inventory flags plus a **separate, currently unconfigured** `BKE_ADMIN_DO_ROUTING_ENABLED=true`, and Cloudflare's platform-verified allowlisted human Admin Access context.
+- It resolves the installation from `readAdminWorkerAssignments` (trusted private GitHub App broker); independently checks `OBSERVED_ONLY / NON_ATOMIC_ENUMERATION / dispatch_authority NONE`, repository/PR bounds and exact installation ID. A metadata-only catalog is not sufficient and may not be substituted.
+- It computes the object ID from the **fixed canonical name** `installation:<trusted-GitHub-App-installation-id>` through the existing PREPRODUCTION `BKE_WORKER_PAIRING_VAULT.idFromName` namespace. There is no worker-specific DO and no client-controlled name or URL.
+- A server CSPRNG nonce (256 bits), a 30-second expiry, and a domain-separated HMAC-SHA256 request authenticate the internal named RPC. The HMAC key is a **separate 32-byte base64url secret** supplied through secure Cloudflare secret bindings under `BKE_PAIRING_RPC_KEY_B64` to the caller Worker and the DO. **NO secret is provisioned or stored in this PR.** The private RPC `BkeWorkerPairingVault.attestInstallation` refuses incorrect purpose, nonce, signature, expiry, configuration or tenant/object ID mismatch.
+- The DO verifies that `ctx.id.toString()` equals its **own namespace's** deterministic `idFromName("installation:" + authenticated installation ID)`. Its signed ACK binds the same nonce, installation, purpose and expiry, preventing the caller from accepting a fabricated or cross-tenant response.
+- A successful response is exactly `SCOPE_ATTESTED_READ_ONLY`, `pairing_authority:NONE`, `dispatch_authority:NONE`, and `consistency:NON_ATOMIC_GITHUB_EVIDENCE`. No token, installation ID, email, PR contents, HMAC, signature or nonce is returned to the browser. There is no public HTTP handler.
+- The new named DO RPC **does not read or write** `paired`, `pending`, `admin_actions` or any task database. `fetch()` continues to return 404. Replay within the 30-second proof lifetime has **no side effects**; replay defenses for actual pairing remain in the previously merged one-use Admin/device proof transaction and must be independently certified at activation.
+
+## What this does *not* yet prove
+
+An HMAC-protected routing ACK is **not final permission to mutate a Durable Object**. Real pairing still needs a separately certified HMAC-authenticated, installation-scoped protected-operation method, with device and human proof possession, Admin access and action-specific consent bound to the exact invocation; a complete live GitHub App PR-ownership read; the existing three-key atomic `PAIRED_INACTIVE` finalizer; crash-ambiguous RPC replay/rollback recovery and no global worker/browser credential. GitHub observations are **non-atomic** even when complete and do not form a persistent PR lock. Active leases, assignment exclusivity, renewal, revocation enforcement, target/profile isolation and actual GeckoView/WebExtension readiness are NOT certified.
+
+The test suite simulates a Durable Object namespace and `ctx.id` and uses a disposable test-only 256-bit key. It verifies identity/Access/feature-denial, wrong-tenant ID, HMAC request and signed-response authenticity, expiry and no-state-write invariants. This is NOT proof of Cloudflare live SQLite persistence. Minimum source CI: full exact-head Command Center `ci` (all Node tests/check + Wrangler PREPRODUCTION dry-run), independent changed-file security review and SHA-locked merge if good.
+
+## Locked deployment and next independent intent
+
+The new routing feature flag and HMAC key are **absent from Wrangler**. Source merge must NOT deploy the Worker, install secrets, enable pairing/relay or change GitHub App permissions. Actual secret provisioning or PREPRODUCTION rollout requires separately explicit authorization and human Admin validation. Production stays locked. Browser authentication, OAuth/MFA/CAPTCHA and parked Android PR #90 must not be automated or awakened.
+
+The next independent implementation, after certification, is **protected pairing RPC authority and real Cloudflare SQLite DO runtime testing** with exact-head ownership and one-time human consent coupled to the actual operation. No operator action is required for the inert source-only PR.
+
+## Cloudflare RPC compatibility check
+
+Cloudflare documents that named Durable Object RPC methods require a class **extending `DurableObject`** from `cloudflare:workers`. To meet this runtime contract without breaking existing Node tests, the PREPRODUCTION Wrangler entrypoint is now `src/cloudflare-worker-entry.js`. It retains the exact existing default HTTP handler from `src/index.js` and re-exports a real `BkeWorkerPairingVault extends DurableObject` wrapper. That wrapper calls `super(ctx,env)` and exposes ONLY read-only `attestInstallation` and the existing 404 `fetch`, delegating to the Node-testable inner vault logic. No pairing, ticket, renewal or lease RPC is added. Wrangler dry-run validates compilation but does not prove live RPC binding.
+
+Reference: https://developers.cloudflare.com/durable-objects/best-practices/create-durable-object-stubs-and-send-requests/
