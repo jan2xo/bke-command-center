@@ -250,3 +250,6 @@ export function createWorkerPairingCeremony({
   }
   return Object.freeze({ issueChallenge, completePairing, revokePairing });
 }
+
+// Shared validation for the same-installation protected atomic finalizer.
+export { safeRegistry as isSafePairedRegistry, safePending as isSafePendingChallenges };

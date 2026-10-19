@@ -142,3 +142,6 @@ export function createAdminOneTimeActionTickets({
   }
   return Object.freeze({ issue, consume });
 }
+
+// Shared validation for the same-installation protected atomic finalizer.
+export { registryIsSafe as isSafeAdminActionTickets };
