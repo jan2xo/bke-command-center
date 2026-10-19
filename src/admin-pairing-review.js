@@ -123,8 +123,8 @@ export async function handleAdminPairingReview({
     return deny("ADMIN_ACCESS_DENIED",403);
   if(url.pathname===POST){
     const answer=await send({
-      kind:"confirm",request,env,executionCtx,
       ...server.rpcOverrides,
+      kind:"confirm",request,env,executionCtx,
     });
     return Response.json(answer,{
       status:answer?.state==="CONFIRMED_FOR_ATOMIC_ISSUANCE"?200:403,
@@ -138,8 +138,8 @@ export async function handleAdminPairingReview({
   if(!preparedShape(prepared))return deny("REVIEW_PREPARATION_INVALID",503);
   const offer={worker_id:prepared.worker_id,public_key:prepared.public_key,
     resources:prepared.resources};
-  const answer=await send({kind:"present",offer,env,executionCtx,
-    ...server.rpcOverrides});
+  const answer=await send({...server.rpcOverrides,
+    kind:"present",offer,env,executionCtx});
   if(answer.state!=="AWAITING_EXPLICIT_HUMAN_CONFIRMATION")
     return deny("REVIEW_PRESENTATION_DENIED",503);
   // Display SHA-256 values from the SAME canonical proposal as signed DO.
