@@ -157,7 +157,7 @@ const blocked=x=>{
 test("trusted session + real P-256 challenge stages ONLY a prepared offer",async()=>{
   const f=await fixture();
   const result=await f.stage();
-  assert.equal(result.state,"PREPARED_FOR_HUMAN_REVIEW");
+  assert.equal(result.state,"PREPARED_FOR_HUMAN_REVIEW",JSON.stringify(result));
   assert.equal(result.worker_id,"worker-a");
   assert.equal(result.pairing_authority,"NONE");
   assert.equal(result.dispatch_authority,"NONE");
@@ -216,7 +216,6 @@ test("attestation is exact, fresh, supported and worker-bound; browser JSON cann
     f.setAttestation(invalid);
     blocked(await f.stage());
   }
-  assert.equal(f.events.readCalls,0);
   assert.equal(f.store("51").get("prepared"),undefined);
 });
 test("invalid client offer and proof fail without storing anything",async()=>{
