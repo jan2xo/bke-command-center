@@ -116,7 +116,7 @@ export function createAdminProposalConsent({
         if(!safeRows(all))return blocked("CONSENT_REGISTRY_AMBIGUOUS");
         const live=all.filter(r=>r.expires_at_ms>now);
         if(live.length>=LIMIT || live.some(r=>r.challenge_id===id ||
-          (r.worker_id===worker_id && r.status!=="CONSUMED")))
+          (r.worker_id===worker_id)))
           return blocked("CONSENT_ALREADY_PENDING");
         await tx.put("consents",[...live,{
           challenge_id:id,expires_at_ms:now+TTL_MS,
@@ -194,7 +194,7 @@ export function createAdminProposalConsent({
         if(!safeRows(all))return blocked("CONSENT_REGISTRY_AMBIGUOUS");
         const live=all.filter(r=>r.expires_at_ms>now);
         if(live.length>=LIMIT || live.some(r=>r.challenge_id===id ||
-          (r.worker_id===worker_id && r.status!=="CONSUMED")))
+          (r.worker_id===worker_id)))
           return blocked("CONSENT_ALREADY_PENDING");
         await tx.put("consents",[...live,{
           challenge_id:id,expires_at_ms:now+TTL_MS,
