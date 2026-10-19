@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { inspectDecisionTimePairingPreflight } from "../src/admin-decision-time-preflight.js";
+import { webcrypto } from "node:crypto";
+import { createAdminOneTimeActionTickets } from "../src/admin-one-time-action-tickets.js";
+import { createPairingAtomicStore } from "../src/worker-pairing-durable-store.js";
 
 const ctx = { access: {
   aud: "0123456789abcdef0123456789abcdef",
@@ -162,4 +165,43 @@ test("source remains off and disconnected from public routes and Durable Object 
   const wrangler = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.doesNotMatch(index, /admin-decision-time-preflight/u);
   assert.doesNotMatch(wrangler, /BKE_ADMIN_DECISION_RECHECK_ENABLED/u);
+});
+
+test("actual installation ticket is consumed once across repeated decision checks", async () => {
+  let data = new Map(), gate = Promise.resolve();
+  const storage = { async transaction(fn) {
+    let unlock;
+    const next = new Promise(resolve => { unlock = resolve; });
+    const previous = gate; gate = next;
+    await previous;
+    const staged = new Map(structuredClone([...data]));
+    try {
+      const answer = await fn({
+        get: async key => structuredClone(staged.get(key)),
+        put: async (key, value) => { staged.set(key, structuredClone(value)); },
+      });
+      data = staged;
+      return answer;
+    } finally { unlock(); }
+  } };
+  const tickets = createAdminOneTimeActionTickets({
+    store: createPairingAtomicStore(storage), installationId: "51",
+    cryptoImpl: webcrypto, clock: () => 100000,
+    authorizeAdmin: async (action, workerId, subjectCtx) =>
+      action === "pair" && workerId === "worker-b" && subjectCtx === ctx
+        ? "f".repeat(64) : null,
+  });
+  const issued = await tickets.issue({
+    action: "pair", worker_id: "worker-b", admin_context: ctx,
+  });
+  assert.equal(issued.state, "ISSUED_FOR_CONFIRMATION");
+  const f = fixture();
+  f.input.ticketManager = tickets;
+  f.input.ticket = {
+    challenge_id: issued.challenge_id, one_time_nonce: issued.one_time_nonce,
+  };
+  assert.equal((await inspectDecisionTimePairingPreflight(f.input)).state,
+    "CHECKED_NOT_RESERVED");
+  blocked(await inspectDecisionTimePairingPreflight(f.input),
+    "DECISION_PREFLIGHT_TICKET_REJECTED");
 });
