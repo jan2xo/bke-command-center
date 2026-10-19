@@ -170,6 +170,86 @@ export function createAdminProposalConsent({
       });
     } catch {return blocked("CONSENT_STORAGE_UNAVAILABLE");}
   }
+  // Private signed-DO invocation ONLY. Caller must verify its real DO ID,
+  // HMAC, expiry, bound installation, human subject and fresh GitHub inventory.
+  // Never map HTTP body fields directly to this API.
+  async function presentFromVerifiedRpc({worker_id,proposal_sha256,subject_sha256,env}={}) {
+    if(!flags(env))return blocked("CONSENT_LOCKED");
+    if(typeof worker_id!=="string" || !WORKER.test(worker_id) ||
+       typeof proposal_sha256!=="string" || !H64.test(proposal_sha256) ||
+       typeof subject_sha256!=="string" || !H64.test(subject_sha256))
+      return blocked("CONSENT_INPUT_INVALID");
+    const who=subject_sha256;
+    const now=time(clock);
+    if(now===null)return blocked("CONSENT_CLOCK_INVALID");
+    let id;
+    try {
+      const random=new Uint8Array(32);
+      cryptoImpl.getRandomValues(random);
+      id=hex(random);
+    } catch {return blocked("CONSENT_RANDOM_UNAVAILABLE");}
+    try {
+      return await store.atomic(async tx=>{
+        const all=(await tx.get("consents"))??[];
+        if(!safeRows(all))return blocked("CONSENT_REGISTRY_AMBIGUOUS");
+        const live=all.filter(r=>r.expires_at_ms>now);
+        if(live.length>=LIMIT || live.some(r=>r.challenge_id===id ||
+          (r.worker_id===worker_id && r.status!=="CONSUMED")))
+          return blocked("CONSENT_ALREADY_PENDING");
+        await tx.put("consents",[...live,{
+          challenge_id:id,expires_at_ms:now+TTL_MS,
+          worker_id,proposal_sha256,subject_sha256:who,status:"PENDING",
+        }]);
+        return Object.freeze({
+          state:"AWAITING_EXPLICIT_HUMAN_CONFIRMATION",
+          challenge_id:id,worker_id,proposal_sha256,
+          expires_at_ms:now+TTL_MS,
+          pairing_authority:"NONE",dispatch_authority:"NONE",
+        });
+      });
+    } catch {return blocked("CONSENT_STORAGE_UNAVAILABLE");}
+  }
+
+  // Request is reconstructed in-process from a verified signed command; this
+  // STILL runs the original origin/Fetch Metadata/JSON/intent validators.
+  async function confirmFromVerifiedRpc({request,subject_sha256,env}={}) {
+    if(!flags(env))return blocked("CONSENT_LOCKED");
+    if(!requestSafe(request))return blocked("CONSENT_REQUEST_REJECTED");
+    const data=await boundedBody(request);
+    if(!fields(data,"action,challenge_id,confirm_worker_id,proposal_sha256,worker_id") ||
+        data.action!=="pair" ||
+        typeof data.worker_id!=="string" || !WORKER.test(data.worker_id) ||
+        data.confirm_worker_id!==data.worker_id ||
+        typeof data.challenge_id!=="string" || !H64.test(data.challenge_id) ||
+        typeof data.proposal_sha256!=="string" || !H64.test(data.proposal_sha256))
+      return blocked("CONSENT_INTENT_INVALID");
+    const who=subject_sha256;
+    if(typeof who!=="string" || !H64.test(who))
+      return blocked("CONSENT_ADMIN_DENIED");
+    const now=time(clock);
+    if(now===null)return blocked("CONSENT_CLOCK_INVALID");
+    try {
+      return await store.atomic(async tx=>{
+        const all=(await tx.get("consents"))??[];
+        if(!safeRows(all))return blocked("CONSENT_REGISTRY_AMBIGUOUS");
+        const record=all.find(r=>r.challenge_id===data.challenge_id);
+        if(!record || record.status!=="PENDING" ||
+           record.expires_at_ms<=now ||
+           record.worker_id!==data.worker_id ||
+           record.proposal_sha256!==data.proposal_sha256 ||
+           record.subject_sha256!==who)
+          return blocked("CONSENT_MISSING_OR_USED");
+        await tx.put("consents",all.map(r=>r.challenge_id===data.challenge_id ?
+          {...r,status:"CONFIRMED"}:r));
+        return Object.freeze({
+          state:"CONFIRMED_FOR_ATOMIC_ISSUANCE",
+          challenge_id:data.challenge_id,worker_id:data.worker_id,
+          proposal_sha256:data.proposal_sha256,
+          pairing_authority:"NONE",dispatch_authority:"NONE",
+        });
+      });
+    } catch {return blocked("CONSENT_STORAGE_UNAVAILABLE");}
+  }
   // IMPORTANT: Invoke only INSIDE the later pairing invitation's SAME tx.
   // Never consume in a separate tx: orphaned approvals after a failed issue
   // violate the all-or-nothing issuance goal.
@@ -197,5 +277,5 @@ export function createAdminProposalConsent({
       {...r,status:"CONSUMED"}:r));
     return Object.freeze({state:"CONSENT_CONSUMED_IN_TRANSACTION"});
   }
-  return Object.freeze({present,confirm,consumeInTransaction});
+  return Object.freeze({present,confirm,consumeInTransaction,presentFromVerifiedRpc,confirmFromVerifiedRpc});
 }
