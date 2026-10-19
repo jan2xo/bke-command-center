@@ -1,5 +1,6 @@
 import { verifyVaultInstallationAttestation } from "./admin-installation-vault-attestation.js";
 import { receiveProtectedInactivePairing } from "./admin-protected-pairing-rpc.js";
+import { receiveAdminPairingInvitation } from "./admin-invitation-rpc.js";
 // Cloudflare Durable Object transaction adapter for inactive pairing identity.
 // GitHub remains the PR/task ledger. This only stores bounded enrollment state.
 // The adapter MUST run *inside* one installation-scoped SQLite-backed DO.
@@ -92,6 +93,13 @@ export class BkeWorkerPairingVault {
   async finalizeProtectedInactivePairing(request) {
     return receiveProtectedInactivePairing({
       request, env: this.#env, objectId: this.#objectId, store: this.#store,
+    });
+  }
+
+  // Private, separately locked signed Admin invitation RPC. Never an HTTP route.
+  async issueAtomicPairingInvitation(request) {
+    return receiveAdminPairingInvitation({
+      request, env:this.#env, objectId:this.#objectId, store:this.#store,
     });
   }
 
