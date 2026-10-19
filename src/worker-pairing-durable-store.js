@@ -1,4 +1,5 @@
 import { verifyVaultInstallationAttestation } from "./admin-installation-vault-attestation.js";
+import { receiveProtectedInactivePairing } from "./admin-protected-pairing-rpc.js";
 // Cloudflare Durable Object transaction adapter for inactive pairing identity.
 // GitHub remains the PR/task ledger. This only stores bounded enrollment state.
 // The adapter MUST run *inside* one installation-scoped SQLite-backed DO.
@@ -81,6 +82,15 @@ export class BkeWorkerPairingVault {
   async attestInstallation(request) {
     return verifyVaultInstallationAttestation({
       request, env: this.#env, objectId: this.#objectId,
+    });
+  }
+
+  // Authenticated private mutation: the RPC adapter verifies the scoped
+  // HMAC, actual installation object, human binding and live broker scope.
+  // The atomic finalizer stores ONLY an INACTIVE worker registration.
+  async finalizeProtectedInactivePairing(request) {
+    return receiveProtectedInactivePairing({
+      request, env: this.#env, objectId: this.#objectId, store: this.#store,
     });
   }
 
