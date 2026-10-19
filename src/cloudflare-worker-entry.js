@@ -19,6 +19,12 @@ export class BkeWorkerPairingVault extends DurableObject {
     return this.#logic.attestInstallation(request);
   }
 
+  // This named RPC is unreachable without the separate HMAC secret and
+  // protected pairing feature flag; no public HTTP route invokes it.
+  async finalizeProtectedInactivePairing(request) {
+    return this.#logic.finalizeProtectedInactivePairing(request);
+  }
+
   async fetch(request) {
     return this.#logic.fetch(request);
   }
