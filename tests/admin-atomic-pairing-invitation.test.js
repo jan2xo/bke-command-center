@@ -254,8 +254,11 @@ test("cross-installation and malformed or incomplete GitHub evidence blocked",as
     labels:["bke-worker:worker-a"],
   }],enumerated_open_pull_requests:1});
   deny(await issue(f,key),"INVITATION_ELIGIBILITY_DENIED");
-  f.setRaw({...raw(),authority:"BROWSER"});
-  deny(await issue(f,key),"INVITATION_GITHUB_UNAVAILABLE");
+  // A separate fixture avoids re-presenting against the previous live,
+  // unconsumed human confirmation, which must fail closed by design.
+  const malformed=make();
+  malformed.setRaw({...raw(),authority:"BROWSER"});
+  deny(await issue(malformed,key),"INVITATION_GITHUB_UNAVAILABLE");
 });
 
 test("expired 90s ticket does not weaken P-256 challenge or future guard",async()=>{
