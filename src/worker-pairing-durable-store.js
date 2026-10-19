@@ -1,3 +1,4 @@
+import { verifyVaultInstallationAttestation } from "./admin-installation-vault-attestation.js";
 // Cloudflare Durable Object transaction adapter for inactive pairing identity.
 // GitHub remains the PR/task ledger. This only stores bounded enrollment state.
 // The adapter MUST run *inside* one installation-scoped SQLite-backed DO.
@@ -67,8 +68,20 @@ export function createPairingAtomicStore(storage) {
 // inventory + device transport intent may invoke internal ceremony methods.
 export class BkeWorkerPairingVault {
   #store;
-  constructor(ctx, _env) {
+  #objectId;
+  #env;
+  constructor(ctx, env) {
     this.#store = createPairingAtomicStore(ctx?.storage);
+    this.#objectId = ctx?.id;
+    this.#env = env;
+  }
+
+  // The only named private RPC added in this wave. Pure scope attestation;
+  // no ticket/device command, nonce persistence, or registry read/write.
+  async attestInstallation(request) {
+    return verifyVaultInstallationAttestation({
+      request, env: this.#env, objectId: this.#objectId,
+    });
   }
 
   async fetch(_request) {
