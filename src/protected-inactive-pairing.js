@@ -207,7 +207,7 @@ export function createProtectedInactivePairing({
         if (!await deviceProofValid(challenge, worker_id, device_challenge_id,
           signature, installationId, cryptoImpl, now)) return fail("PROTECTED_PAIRING_DEVICE_PROOF_INVALID");
         const decision = evaluateWorkerEnrollment({
-          candidate: { ...challenge, dispatch_state: "IDLE" },
+          candidate: { ...challenge },
           pairedWorkers: paired, openPullRequests: prs,
           inventoryVerified: true, prSnapshotVerified: true, nowMs: now,
         });
