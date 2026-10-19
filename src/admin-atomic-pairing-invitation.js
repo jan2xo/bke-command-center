@@ -11,6 +11,8 @@ const HUMAN_AUD = "bke-command-center/preproduction/admin-action/v1";
 const WORKER = /^[a-z0-9][a-z0-9-]{0,62}$/u;
 const INSTALL = /^[1-9][0-9]{0,19}$/u;
 const HEX = /^[a-f0-9]{64}$/u;
+// The 60-second confirmed human proposal challenge is a distinct value from
+// the later 90-second Admin ticket. Never accept a human approval boolean.
 const KEY32 = /^[A-Za-z0-9_-]{43}$/u;
 const RES = ["chatgpt_target_sha256","browser_profile_sha256","bridge_identity_sha256"];
 const blocked = code => Object.freeze({ state:"BLOCKED", code });
@@ -68,13 +70,40 @@ function prsFor(snapshot,installationId) {
     labels:["bke-worker:"+p.worker_id],
   }));
 }
+// This hash is the *sole* canonical proposal digest for future server-side
+// presentation and final issuance. Normalize the public key and resource field
+// order to prevent equivalent caller objects changing the approved proposal.
+export async function computePairingProposalSha256({
+  installationId, workerId, publicKey, resources, cryptoImpl=crypto,
+}={}) {
+  const key=canonicalKey(publicKey);
+  if(typeof installationId!=="string" || !INSTALL.test(installationId) ||
+      typeof workerId!=="string" || !WORKER.test(workerId) ||
+      !key || !validResources(resources) ||
+      typeof cryptoImpl?.subtle?.importKey!=="function" ||
+      typeof cryptoImpl?.subtle?.digest!=="function") return null;
+  try {
+    await cryptoImpl.subtle.importKey("jwk",key,
+      {name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
+    const keyhash=await digestHex(cryptoImpl.subtle,utf8(JSON.stringify(key)));
+    // Canonical order is part of the consent contract. Explicitly hash each
+    // fingerprint rather than caller object insertion order.
+    const canonicalResources=Object.fromEntries(RES.map(k=>[k,resources[k]]));
+    const proposalHash=await digestHex(cryptoImpl.subtle,utf8(JSON.stringify([
+      "pair",installationId,workerId,keyhash,canonicalResources,
+    ])));
+    return Object.freeze({ key, keyhash, proposalHash, resources:canonicalResources });
+  } catch { return null; }
+}
+
 function enabled(env) {
   return env?.BKE_PREPRODUCTION==="true" &&
     env?.BKE_ACCESS_POLICY_VERIFIED==="true" &&
     env?.BKE_ADMIN_PR_INVENTORY_ENABLED==="true" &&
     env?.BKE_ADMIN_PAIRING_ACTIONS_ENABLED==="true" &&
     env?.BKE_ADMIN_PROTECTED_PAIRING_ENABLED==="true" &&
-    env?.BKE_ADMIN_PAIRING_ISSUANCE_ENABLED==="true";
+    env?.BKE_ADMIN_PAIRING_ISSUANCE_ENABLED==="true" &&
+    env?.BKE_ADMIN_PROPOSAL_CONSENT_ENABLED==="true";
 }
 
 // A TRUSTED server adapter MUST:
@@ -86,37 +115,37 @@ function enabled(env) {
 // No HTTP route/DO RPC invokes this factory in this PR.
 export function createAtomicPairingInvitation({
   store, installationId, authorizeHumanAction, readInstallationInventory,
-  cryptoImpl=crypto, clock=()=>Date.now(),
+  confirmedConsent, cryptoImpl=crypto, clock=()=>Date.now(),
 }) {
   if (typeof store?.atomic!=="function" ||
       typeof installationId!=="string" || !INSTALL.test(installationId) ||
       typeof authorizeHumanAction!=="function" ||
       typeof readInstallationInventory!=="function" ||
+      typeof confirmedConsent?.consumeInTransaction!=="function" ||
       typeof cryptoImpl?.getRandomValues!=="function" ||
       typeof cryptoImpl?.subtle?.importKey!=="function" ||
       typeof cryptoImpl?.subtle?.digest!=="function" ||
       typeof clock!=="function") throw Error("INVITATION_ADAPTER_INVALID");
 
-  async function issue({worker_id,public_key,resources,admin_context,env}={}) {
+  async function issue({worker_id,public_key,resources,consent_challenge_id,admin_context,env}={}) {
     if(!enabled(env))return blocked("INVITATION_LOCKED");
-    const key=canonicalKey(public_key);
     if(typeof worker_id!=="string" || !WORKER.test(worker_id) ||
-        !key || !validResources(resources)) return blocked("INVITATION_INPUT_INVALID");
-    let keyhash, proposalHash;
-    try {
-      await cryptoImpl.subtle.importKey("jwk",key,
-        {name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
-      keyhash=await digestHex(cryptoImpl.subtle,utf8(JSON.stringify(key)));
-      proposalHash=await digestHex(cryptoImpl.subtle,utf8(JSON.stringify([
-        "pair",installationId,worker_id,keyhash,resources,
-      ])));
-    } catch { return blocked("INVITATION_DEVICE_KEY_INVALID"); }
+        !canonicalKey(public_key) || !validResources(resources))
+      return blocked("INVITATION_INPUT_INVALID");
+    if(typeof consent_challenge_id!=="string" || !HEX.test(consent_challenge_id))
+      return blocked("INVITATION_CONSENT_REQUIRED");
+    const proposal=await computePairingProposalSha256({
+      installationId, workerId:worker_id, publicKey:public_key, resources,cryptoImpl,
+    });
+    if(!proposal)return blocked("INVITATION_DEVICE_KEY_INVALID");
+    const {key,keyhash,proposalHash}=proposal;
+    const canonicalResources=proposal.resources;
     let subject;
     try {
       subject=await authorizeHumanAction(Object.freeze({
         action:"pair",worker_id,installation_id:installationId,
         identity_public_key_sha256:keyhash,
-        resources:Object.freeze({...resources}),
+        resources:Object.freeze({...canonicalResources}),
         proposal_sha256:proposalHash,
       }),admin_context);
     } catch { return blocked("INVITATION_HUMAN_DENIED"); }
@@ -149,12 +178,12 @@ export function createAtomicPairingInvitation({
     const deviceExpiry=now+120000, humanExpiry=now+90000;
     const message=JSON.stringify([
       DEVICE_AUD,installationId,worker_id,deviceId,deviceNonce,keyhash,
-      resources.chatgpt_target_sha256,resources.browser_profile_sha256,
-      resources.bridge_identity_sha256,deviceExpiry,
+      canonicalResources.chatgpt_target_sha256,canonicalResources.browser_profile_sha256,
+      canonicalResources.bridge_identity_sha256,deviceExpiry,
     ]);
     const candidate={
       worker_id,identity_public_key_sha256:keyhash,
-      ...resources,nonce_sha256:deviceNonceHash,dispatch_state:"IDLE",
+      ...canonicalResources,nonce_sha256:deviceNonceHash,dispatch_state:"IDLE",
       expires_at_ms:deviceExpiry,
     };
     const pendingRow={...candidate,challenge_id:deviceId,public_key:key,message};
@@ -184,6 +213,17 @@ export function createAtomicPairingInvitation({
             liveTickets.some(t=>t.status==="PENDING" && t.worker_id===worker_id) ||
             liveTickets.some(t=>t.challenge_id===humanId || t.nonce_sha256===humanNonceHash))
           return blocked("INVITATION_CONFLICT");
+        // The consent and both issuance writes share ONE installation-wide
+        // transaction. A mismatched/replayed/expired human confirmation denies
+        // the operation without issuing either proof. If a later put fails,
+        // all three mutations roll back together.
+        const consent=await confirmedConsent.consumeInTransaction(tx,{
+          challenge_id:consent_challenge_id, worker_id,
+          proposal_sha256:proposalHash, subject_sha256:subject,
+        });
+        if(consent?.state!=="CONSENT_CONSUMED_IN_TRANSACTION" ||
+            Object.keys(consent).sort().join(",")!=="state")
+          return blocked("INVITATION_CONSENT_DENIED");
         await tx.put("pending",[...livePending,pendingRow]);
         await tx.put("admin_actions",[...liveTickets,ticketRow]);
         // Human proof is returned only to the trusted server for later
