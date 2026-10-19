@@ -247,5 +247,6 @@ test("Cloudflare runtime entrypoint extends DurableObject and exports only safe 
   assert.match(entry, /export class BkeWorkerPairingVault extends DurableObject/u);
   assert.match(entry, /super\(ctx, env\)/u);
   assert.match(entry, /async attestInstallation\(request\)/u);
-  assert.doesNotMatch(entry, /async (finalize|issue|pair|revoke|dispatch)\w*\(/u);
+  assert.match(entry, /async finalizeProtectedInactivePairing\(request\)/u);
+  assert.doesNotMatch(entry, /async (issue|pair|revoke|dispatch|wake)\w*\(/u);
 });
