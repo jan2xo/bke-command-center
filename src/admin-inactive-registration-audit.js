@@ -70,7 +70,12 @@ export async function observeInactivePairingRegistrations({
         for(const k of RESOURCE_FIELDS)selected[k]=row[k];
         active.push(Object.freeze(selected));
       }
-      if(safeNow(clock)===null)blocked();
+      const finished=safeNow(clock);
+      // A transaction can outlive an enrollment's expiry. Never return an
+      // apparently current registration on a backwards/advanced clock.
+      if(finished===null||finished<at||finished-at>30_000||
+        rows.some(row=>row.status==="PAIRED_INACTIVE"&&
+          row.enrollment_expires_at_ms>at&&row.enrollment_expires_at_ms<=finished))blocked();
       active.sort((a,b)=>a.worker_id.localeCompare(b.worker_id));
       // No session binding exists in paired-vault records. Never synthesize
       // one from the nonce, pairing key or a browser profile claim.
