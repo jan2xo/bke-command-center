@@ -240,3 +240,34 @@ test("public HTTP still refuses pairing and neither secret nor flag is configure
   assert.match(cloud,/async finalizeProtectedInactivePairing\(request\)/u);
   assert.match(cloud,/extends DurableObject/u);
 });
+
+test("tampered HMAC envelope body or expiration cannot mutate any pairing state", async () => {
+  for (const transform of [
+    request => ({ ...request, nonce: "a".repeat(64) }),
+    request => ({ ...request, proof: { ...request.proof, worker_id: "worker-b" } }),
+    request => ({ ...request, expires_at_ms: Date.now() - 1000 }),
+  ]) {
+    const f = await setup();
+    const live = new BkeWorkerPairingVault({
+      id:f.ns.idFromName("installation:51"),storage:f.storage,
+    },f.env);
+    f.setStub({
+      finalizeProtectedInactivePairing: async sealed =>
+        live.finalizeProtectedInactivePairing(transform(sealed)),
+    });
+    blocked(await f.request());
+    assert.equal(f.storage.get("paired"),undefined);
+    assert.equal(f.storage.get("pending").length,1);
+    assert.equal(f.storage.get("admin_actions")[0].status,"PENDING");
+  }
+});
+
+test("DO-side broker outage rejects the signed command before any state write", async () => {
+  const f = await setup();
+  f.env.BKE_GITHUB_READ_BROKER.listVerifiedWorkerAssignments = async () => {
+    throw Error("private provider failure");
+  };
+  blocked(await f.request());
+  assert.equal(f.storage.get("paired"),undefined);
+  assert.equal(f.storage.get("admin_actions")[0].status,"PENDING");
+});
