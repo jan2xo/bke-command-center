@@ -77,7 +77,7 @@ async function fixture(installation="51"){
   const key=await device(),stores=new Map();
   const events={peerChecks:0,readCalls:0,proofCalls:0,brokerCalls:0,
     labelCalls:0,now:CLOCK,change:false,badProof:false,failBroker:false,
-    peerDisabled:false,replaceOffer:null};
+    peerDisabled:false,replaceOffer:null,receiverCode:null};
   const store=id=>{
     if(!stores.has(id))stores.set(id,fakeStorage());
     return stores.get(id);
@@ -87,7 +87,12 @@ async function fixture(installation="51"){
     idFromName:name=>({toString:()=>name}),
     get:obj=>{
       const id=obj.toString().slice("installation:".length);
-      return new BkeWorkerPairingVault({id:obj,storage:store(id)},env);
+      const vault=new BkeWorkerPairingVault({id:obj,storage:store(id)},env);
+      return {async managePreparedDeviceProposal(command){
+        const result=await vault.managePreparedDeviceProposal(command);
+        events.receiverCode=result?.state==="BLOCKED"?result.code:null;
+        return result;
+      }};
     },
   };
   env={...FLAGS,BKE_WORKER_PAIRING_VAULT:ns,
@@ -157,7 +162,7 @@ const blocked=x=>{
 test("trusted session + real P-256 challenge stages ONLY a prepared offer",async()=>{
   const f=await fixture();
   const result=await f.stage();
-  assert.equal(result.state,"PREPARED_FOR_HUMAN_REVIEW",JSON.stringify(result));
+  assert.equal(result.state,"PREPARED_FOR_HUMAN_REVIEW",JSON.stringify({result,receiverCode:f.events.receiverCode}));
   assert.equal(result.worker_id,"worker-a");
   assert.equal(result.pairing_authority,"NONE");
   assert.equal(result.dispatch_authority,"NONE");
