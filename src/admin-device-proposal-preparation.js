@@ -124,11 +124,12 @@ function validPreparedRows(rows){
   if(!Array.isArray(rows)||rows.length>100)return false;
   const workers=new Set(),nonces=new Set();
   for(const row of rows) {
-    if(!exact(row,"display,expires_at_ms,identity_public_key_sha256,proof_nonce,proposal_sha256,public_key,resources,worker_id")||
+    if(!exact(row,"display,expires_at_ms,identity_public_key_sha256,proof_nonce,proposal_sha256,public_key,resources,subject_sha256,worker_id")||
       typeof row.worker_id!=="string"||!WORKER.test(row.worker_id) ||
       typeof row.identity_public_key_sha256!=="string"||!HEX.test(row.identity_public_key_sha256) ||
       typeof row.proposal_sha256!=="string"||!HEX.test(row.proposal_sha256) ||
       typeof row.proof_nonce!=="string"||!HEX.test(row.proof_nonce) ||
+      typeof row.subject_sha256!=="string"||!HEX.test(row.subject_sha256) ||
       !Number.isSafeInteger(row.expires_at_ms)||row.expires_at_ms<0||
       !labelsValid(row.display)||workers.has(row.worker_id)||nonces.has(row.proof_nonce))return false;
     workers.add(row.worker_id);nonces.add(row.proof_nonce);
@@ -381,6 +382,7 @@ export async function receivePreparedDeviceProposal({
         },id,cryptoImpl);
         if(!canonical || canonical.proposal_sha256!==current.proposal_sha256 ||
           canonical.identity_public_key_sha256!==current.identity_public_key_sha256 ||
+          current.subject_sha256!==command.subject_sha256 ||
           snapshot.worker_claims.some(x=>x.worker_id===current.worker_id) ||
           conflictWith(paired,current) ||
           conflictWith(pending.filter(r=>r.expires_at_ms>now),current))
@@ -411,6 +413,7 @@ export async function receivePreparedDeviceProposal({
         proposal_sha256:offer.proposal_sha256,
         identity_public_key_sha256:offer.identity_public_key_sha256,
         proof_nonce:command.payload.proof_nonce,
+        subject_sha256:command.subject_sha256,
         expires_at_ms:now+PREPARED_TTL,
       }]);
       return Object.freeze({
