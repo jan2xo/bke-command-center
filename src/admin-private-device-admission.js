@@ -128,15 +128,10 @@ export async function stageDeviceFromPrivateTransport({
     if(result?.state!=="PREPARED_FOR_HUMAN_REVIEW") {
       // Expose only a bounded, known local policy reason, never a provider
       // exception, transport payload, credential or human identity.
-      const safeCauses=new Set([
-        "PREPARATION_DEVICE_INVALID","PREPARATION_DEVICE_PROOF_UNAVAILABLE",
-        "PREPARATION_DEVICE_PROOF_INVALID","PREPARATION_SCOPE_CHANGED",
-        "PREPARATION_ADMIN_DENIED","PREPARATION_GITHUB_AMBIGUOUS",
-        "PREPARATION_GITHUB_UNAVAILABLE","PREPARATION_STORAGE_UNAVAILABLE",
-        "PREPARATION_DENIED","PREPARATION_OUTCOME_UNCERTAIN",
-      ]);
-      return block(safeCauses.has(result?.code)
-        ?"DEVICE_TRANSPORT_"+result.code:"DEVICE_TRANSPORT_PREPARATION_DENIED");
+      const cause=typeof result?.code==="string"&&
+        /^PREPARATION_[A-Z_]{4,60}$/u.test(result.code)
+        ?result.code:"PREPARATION_DENIED";
+      return block("DEVICE_TRANSPORT_"+cause);
     }
     if(result.pairing_authority!=="NONE"||result.dispatch_authority!=="NONE")
       return block("DEVICE_TRANSPORT_OUTCOME_UNCERTAIN");
