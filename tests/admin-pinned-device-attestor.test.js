@@ -36,7 +36,7 @@ async function fixture(){
    return mutation(envelope);
  }
  const authorizer=()=>createPinnedDevicePeerAuthorizer({pinnedPublicKey:trusted,requestSignedBinding,cryptoImpl:webcrypto,clock:()=>at});
- return {authorizer,link,seen,setTime:x=>{at=x;},mutate:x=>{mutation=x;},setSigner:k=>{signer=k;},getLast:()=>last,trust:trusted};
+ return {authorizer,link,seen,requestSignedBinding,setTime:x=>{at=x;},mutate:x=>{mutation=x;},setSigner:k=>{signer=k;},getLast:()=>last,trust:trusted};
 }
 
 test('real pinned attestor P-256 signature returns only strictly bound session evidence',async()=>{
@@ -48,6 +48,29 @@ test('real pinned attestor P-256 signature returns only strictly bound session e
  assert.equal(value.dispatch_authority,undefined);
  assert.deepEqual(await fn(f.link),binding());
  assert.notEqual(f.seen[0],f.seen[1]);
+});
+
+test('async verification uses immutable binding snapshot, not subsequently mutated link data',async()=>{
+ const f=await fixture();let original;
+ f.mutate(v=>{original=v;return v;});
+ const subtle={
+   importKey:(...args)=>webcrypto.subtle.importKey(...args),
+   verify:async(...args)=>{
+     const authentic=await webcrypto.subtle.verify(...args);
+     // Simulate another event mutating the transport object during the await.
+     original.binding.worker_id='worker-b';
+     original.binding.session_binding_sha256=H('f');
+     return authentic;
+   },
+ };
+ const fn=createPinnedDevicePeerAuthorizer({
+   pinnedPublicKey:f.trust,requestSignedBinding:f.requestSignedBinding,
+   cryptoImpl:{subtle,getRandomValues:x=>webcrypto.getRandomValues(x)},clock:()=>T,
+ });
+ const result=await fn(f.link);
+ assert.equal(result.worker_id,'worker-a');
+ assert.equal(result.session_binding_sha256,H('2'));
+ assert.equal(Object.isFrozen(result),true);
 });
 
 test('unsigned, tampered, wrong-key and session-substitution evidence fail closed',async()=>{
