@@ -314,3 +314,29 @@ test("request payload and response exclude raw subject / installation / private 
   assert.doesNotMatch(serialized,/subject_sha256|installation_id|one_time_nonce|admin@example.test|signature/u);
   assert.equal(f.db("51").rows("admin_actions"),undefined);
 });
+
+test("signed presentation replay cannot create another challenge while consumed tombstone is live",async()=>{
+  const f=await fixture();
+  let original;
+  f.meta.override=obj=>({
+    async reviewPairingConsent(command){
+      original=structuredClone(command);
+      return new BkeWorkerPairingVault({id:obj,storage:f.db("51")},f.env)
+        .reviewPairingConsent(command);
+    },
+  });
+  assert.equal((await f.show()).status,200);
+  assert.ok(original);
+  await f.db("51").transaction(async tx=>{
+    const path="bke:pairing:v1:consents";
+    const rows=await tx.get(path);
+    await tx.put(path,rows.map(x=>({...x,status:"CONSUMED"})));
+  });
+  const again=await receiveAdminPairingConsent({
+    command:original,env:f.env,objectId:f.ns.idFromName("installation:51"),
+    store:createPairingAtomicStore(f.db("51")),cryptoImpl:webcrypto,
+  });
+  denial(again);
+  assert.equal(f.db("51").rows("consents").length,1);
+  assert.equal(f.db("51").rows("consents")[0].status,"CONSUMED");
+});
