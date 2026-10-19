@@ -269,3 +269,35 @@ test("storage exceptions become fixed redacted errors", async () => {
   assert.deepEqual(await api.issueChallenge(request(pair)),
     { state: "BLOCKED", code: "PAIRING_STORAGE_UNAVAILABLE" });
 });
+
+test("RNG or clock failure is redacted and never creates a pending pairing", async () => {
+  reset();
+  const pair = await keypair();
+  const randomFail = make(fakeStore(), {
+    cryptoImpl: { subtle: webcrypto.subtle,
+      getRandomValues() { throw Error("private RNG failure"); } },
+  });
+  assert.deepEqual(await randomFail.api.issueChallenge(request(pair)),
+    { state: "BLOCKED", code: "PAIRING_RANDOM_UNAVAILABLE" });
+  assert.equal(Object.keys(randomFail.store.snapshot()).length, 0);
+  const brokenClock = make(fakeStore(), {
+    clock() { throw Error("private clock failure"); },
+  });
+  assert.deepEqual(await brokenClock.api.issueChallenge(request(pair)),
+    { state: "BLOCKED", code: "PAIRING_CLOCK_INVALID" });
+});
+
+test("corrupted paired registry with repeated resource fingerprints fails closed", async () => {
+  reset();
+  const { api, store } = make();
+  const first = await keypair();
+  const challenge = await api.issueChallenge(request(first, "worker-a", 0));
+  assert.equal((await api.completePairing({ worker_id: "worker-a",
+    challenge_id: challenge.challenge_id, signature: await signed(first, challenge) })).state,
+    "PAIRED_INACTIVE");
+  await store.atomic(async tx => {
+    const registered = await tx.get("paired");
+    await tx.put("paired", [...registered, { ...registered[0], worker_id: "worker-z" }]);
+  });
+  denied(await api.issueChallenge(request(await keypair(), "worker-c", 2)));
+});
