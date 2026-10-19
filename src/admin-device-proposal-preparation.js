@@ -233,10 +233,11 @@ async function dispatch({env,executionCtx,kind,payload,readAssignments,cryptoImp
 // messaging/device-ingress transport. It supplies a private signer FUNCTION,
 // not serializable JSON or a fabricated "device_authenticated" boolean.
 export async function stageDeviceOriginProposal({
-  env,executionCtx,deviceBridge,readAssignments=readAdminWorkerAssignments,
+  env,executionCtx,deviceBridge,describeResources,readAssignments=readAdminWorkerAssignments,
   cryptoImpl=crypto,clock=()=>Date.now(),
 }={}){
   if(!flags(env))return blocked("PREPARATION_LOCKED");
+  if(typeof describeResources!=="function")return blocked("PREPARATION_DISPLAY_AUTHORITY_REQUIRED");
   if(typeof deviceBridge?.readCandidate!=="function")
     return blocked("PREPARATION_DEVICE_BRIDGE_REQUIRED");
   // Authenticate human and determine authoritative installation before
