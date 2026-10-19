@@ -133,11 +133,14 @@ export function createProtectedInactivePairing({
   store, installationId, authorizeHumanSubject,
   readAssignments = readAdminWorkerAssignments, cryptoImpl = crypto,
   clock = () => Date.now(),
+  authorizeAccess = async (ctx, env) =>
+    (await inspectAdminRuntimeAccess(ctx, env)) === "AUTHORIZED",
 }) {
   if (typeof store?.atomic !== "function" ||
       typeof installationId !== "string" || !INSTALL.test(installationId) ||
       typeof authorizeHumanSubject !== "function" ||
       typeof readAssignments !== "function" ||
+      typeof authorizeAccess !== "function" ||
       typeof cryptoImpl?.subtle?.verify !== "function" ||
       typeof cryptoImpl?.subtle?.digest !== "function" ||
       typeof clock !== "function") throw Error("PROTECTED_PAIRING_ADAPTER_INVALID");
@@ -157,9 +160,13 @@ export function createProtectedInactivePairing({
         typeof admin_challenge_id !== "string" || !H32.test(admin_challenge_id) ||
         typeof admin_one_time_nonce !== "string" || !H64.test(admin_one_time_nonce) ||
         !signature) return fail("PROTECTED_PAIRING_PROOF_INVALID");
-    if (await inspectAdminRuntimeAccess(executionCtx, env) !== "AUTHORIZED") {
-      return fail("PROTECTED_PAIRING_ADMIN_DENIED");
-    }
+    // Inside the DO, the injected Access adapter accepts ONLY a previously
+    // HMAC-verified, locally branded internal context. Never deserialize an
+    // arbitrary browser/user Access object as trusted evidence.
+    let authorized = false;
+    try { authorized = (await authorizeAccess(executionCtx, env)) === true; }
+    catch { /* fail closed on uncertain platform identity */ }
+    if (!authorized) return fail("PROTECTED_PAIRING_ADMIN_DENIED");
     let subject;
     try { subject = await authorizeHumanSubject("pair", worker_id, executionCtx); }
     catch { return fail("PROTECTED_PAIRING_ADMIN_DENIED"); }
