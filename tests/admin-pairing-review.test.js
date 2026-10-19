@@ -340,3 +340,24 @@ test("signed presentation replay cannot create another challenge while consumed 
   assert.equal(f.db("51").rows("consents").length,1);
   assert.equal(f.db("51").rows("consents")[0].status,"CONSUMED");
 });
+
+test("server adapter override cannot replace platform Access or chosen operation",async()=>{
+  const f=await fixture();
+  f.server.rpcOverrides={
+    ...f.server.rpcOverrides,
+    kind:"confirm",env:{...f.env,BKE_PREPRODUCTION:undefined},
+    executionCtx:{},offer:{worker_id:"attacker"},
+  };
+  assert.equal((await f.show()).status,200);
+  assert.equal((await f.confirm()).status,200);
+});
+test("expired confirmation challenge denies without changing its consent state",async()=>{
+  const f=await fixture();await f.show();
+  await f.db("51").transaction(async tx=>{
+    const path="bke:pairing:v1:consents";
+    const rows=await tx.get(path);
+    await tx.put(path,rows.map(x=>({...x,expires_at_ms:Date.now()-1})));
+  });
+  assert.equal((await f.confirm()).status,403);
+  assert.equal(f.pending().status,"PENDING");
+});
