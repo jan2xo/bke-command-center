@@ -64,9 +64,9 @@ export function createPairingAtomicStore(storage) {
   });
 }
 
-// Deployable class intentionally exposes NO enrollment RPC and its fetch
-// always refuses. A future separately certified Admin + complete GitHub
-// inventory + device transport intent may invoke internal ceremony methods.
+// Deployable logic: fetch always returns 404. Two private named RPCs only:
+// read-only tenant attestation and guarded atomic INACTIVE pairing finalizer.
+// Neither provides device transport, worker leases or public enrollment.
 export class BkeWorkerPairingVault {
   #store;
   #objectId;
@@ -77,7 +77,7 @@ export class BkeWorkerPairingVault {
     this.#env = env;
   }
 
-  // The only named private RPC added in this wave. Pure scope attestation;
+  // Pure read-only installation scope attestation;
   // no ticket/device command, nonce persistence, or registry read/write.
   async attestInstallation(request) {
     return verifyVaultInstallationAttestation({
