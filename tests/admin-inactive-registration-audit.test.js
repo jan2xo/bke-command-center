@@ -77,7 +77,7 @@ test("real vault transaction projects only unexpired inactive IDs and FOUR immut
  assert.equal(x.db.transactions,1);
  assert.equal(x.db.reads,1);
  assert.equal(x.db.writes,0);
- assert.doesNotMatch(JSON.stringify(observation),/nonce_sha256|session_binding_sha256|public_key|token|secret/);
+ assert.doesNotMatch(JSON.stringify(observation),/nonce_sha256|session_binding_sha256|private_key|token|secret/);
 });
 
 test("empty vault is observed only; no invented worker, token or live session",async()=>{
