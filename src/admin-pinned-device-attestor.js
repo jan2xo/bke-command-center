@@ -76,17 +76,23 @@ export function createPinnedDevicePeerAuthorizer({
     const end = safeTime(clock);
     if (end === null || end < start || end >= start + 30_000 ||
         !exact(response, ENVELOPE_FIELDS) || response.version !== 1 ||
-        response.request_nonce !== nonce || !validBinding(response.binding, end))
+        response.request_nonce !== nonce)
       throw Error('PRIVATE_ATTESTOR_EVIDENCE_INVALID');
+    // Snapshot once before an asynchronous signature verification. A returned
+    // transport object must not mutate the signed binding during that await.
+    let observed;
+    try { observed = structuredClone(response.binding); }
+    catch { throw Error('PRIVATE_ATTESTOR_EVIDENCE_INVALID'); }
+    if (!validBinding(observed, end)) throw Error('PRIVATE_ATTESTOR_EVIDENCE_INVALID');
     const signature = fromUrl(response.signature);
     if (!signature) throw Error('PRIVATE_ATTESTOR_SIGNATURE_INVALID');
     let authenticated;
     try {
       authenticated = await cryptoImpl.subtle.verify({name:'ECDSA',hash:'SHA-256'},
-        await keyPromise, signature, text.encode(privateAttestorMessage(nonce,response.binding)));
+        await keyPromise, signature, text.encode(privateAttestorMessage(nonce,observed)));
     } catch { authenticated = false; }
     if (!authenticated || safeTime(clock) === null ||
-        clock() >= response.binding.expires_at_ms) throw Error('PRIVATE_ATTESTOR_SIGNATURE_DENIED');
-    return Object.freeze(structuredClone(response.binding));
+        clock() >= observed.expires_at_ms) throw Error('PRIVATE_ATTESTOR_SIGNATURE_DENIED');
+    return Object.freeze(observed);
   };
 }
