@@ -7,7 +7,6 @@ import {
   readAdminWorkerAssignments, parseTrustedWorkerAssignmentPayload,
 } from "./admin-worker-assignments.js";
 import { createProtectedInactivePairing } from "./protected-inactive-pairing.js";
-import { createPairingAtomicStore } from "./worker-pairing-durable-store.js";
 
 const AUD = "bke-command-center/preproduction/execute-protected-inactive-pairing/v1";
 const BROKER_PURPOSE = Object.freeze({ purpose: "admin_worker_assignment_inventory" });
