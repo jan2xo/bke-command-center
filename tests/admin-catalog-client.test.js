@@ -110,6 +110,7 @@ test("broker RPC reports only fixed non-sensitive upstream categories", async ()
     ["ADMIN_CATALOG_INSTALLATION_LOOKUP_UNAVAILABLE", "GITHUB_CATALOG_INSTALLATION_RUNTIME_UNAVAILABLE"],
     ["ADMIN_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE", "GITHUB_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE"],
     ["ADMIN_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE", "GITHUB_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE"],
+    ["ADMIN_CATALOG_REPOSITORIES_REDIRECT_BLOCKED", "GITHUB_CATALOG_REPOSITORIES_REDIRECT_BLOCKED"],
     ["ADMIN_CATALOG_TOKEN_SCOPE_INVALID", "GITHUB_CATALOG_TOKEN_PERMISSION_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_BEARER_INVALID", "GITHUB_CATALOG_TOKEN_BEARER_REJECTED"],
     ["ADMIN_CATALOG_TOKEN_EXPIRY_INVALID", "GITHUB_CATALOG_TOKEN_EXPIRY_REJECTED"],
@@ -146,6 +147,7 @@ test("unexpected RPC errors, provider secrets and personal details are always hi
     "ADMIN_CATALOG_TOKEN_TRANSPORT_UNAVAILABLE\n X-github-token: ghs_fake",
     "ADMIN_CATALOG_INSTALLATION_LOOKUP_UNAVAILABLE " + "x".repeat(400),
     "ADMIN_CATALOG_REPOSITORIES_TRANSPORT_UNAVAILABLE: SECRET",
+    "ADMIN_CATALOG_REPOSITORIES_REDIRECT_BLOCKED: https://untrusted.example/token",
     "ADMIN_CATALOG_TOKEN_GRANT_INVALID\n metadata write",
     "ADMIN_CATALOG_TOKEN_EXPIRY_INVALID " + "x".repeat(301),
     null,
@@ -225,4 +227,24 @@ test("runtime-stage codes are redacted, fixed and never turn into a token or aut
     assert.equal(fallbackCalls,0);
     assert.deepEqual(seen,[{purpose:"admin_installation_repository_catalog"}]);
   }
+});
+
+
+test("GitHub redirect rejection is exposed only as a fixed nonsecret code", async () => {
+  const {env,seen} = fixture();
+  let fallbackCalls=0;
+  env.BKE_GITHUB_READ_BROKER.listApprovedGitHubRepositories=async request=>{
+    seen.push(request);
+    throw new Error("ADMIN_CATALOG_REPOSITORIES_REDIRECT_BLOCKED");
+  };
+  await assert.rejects(()=>discoverGitHubRepositories(env,async()=>{
+    fallbackCalls++;throw Error("PAT fallback forbidden");
+  }), error=>{
+    assert.equal(error.code,"GITHUB_CATALOG_REPOSITORIES_REDIRECT_BLOCKED");
+    assert.equal(error.message,"GITHUB_CATALOG_REPOSITORIES_REDIRECT_BLOCKED");
+    assert.doesNotMatch(error.message,/ghs_|Location|http|user|token/iu);
+    return true;
+  });
+  assert.equal(fallbackCalls,0);
+  assert.deepEqual(seen,[{purpose:"admin_installation_repository_catalog"}]);
 });
