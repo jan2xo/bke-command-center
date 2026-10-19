@@ -2,6 +2,7 @@ import { verifyVaultInstallationAttestation } from "./admin-installation-vault-a
 import { receiveProtectedInactivePairing } from "./admin-protected-pairing-rpc.js";
 import { receiveAdminPairingInvitation } from "./admin-invitation-rpc.js";
 import { receiveAdminPairingConsent } from "./admin-pairing-review-rpc.js";
+import { receivePreparedDeviceProposal } from "./admin-device-proposal-preparation.js";
 // Cloudflare Durable Object transaction adapter for inactive pairing identity.
 // GitHub remains the PR/task ledger. This only stores bounded enrollment state.
 // The adapter MUST run *inside* one installation-scoped SQLite-backed DO.
@@ -10,6 +11,7 @@ const KEY = Object.freeze({
   pending: "bke:pairing:v1:pending",
   admin_actions: "bke:pairing:v1:admin_actions",
   consents: "bke:pairing:v1:consents",
+  prepared: "bke:pairing:v1:prepared",
 });
 const MAX_ROWS = 100;
 const MAX_SERIALIZED_BYTES = 262_144;
@@ -108,6 +110,13 @@ export class BkeWorkerPairingVault {
   async reviewPairingConsent(command) {
     return receiveAdminPairingConsent({
       command,env:this.#env,objectId:this.#objectId,store:this.#store,
+    });
+  }
+
+  // Default-OFF private device proposal staging/observation, never HTTP.
+  async managePreparedDeviceProposal(command) {
+    return receivePreparedDeviceProposal({
+      command, env:this.#env, objectId:this.#objectId, store:this.#store,
     });
   }
 

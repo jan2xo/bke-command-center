@@ -28,6 +28,9 @@ function safeRows(rows) {
   }
   return true;
 }
+// Shared strict consent storage validator for other installation-scoped RPCs.
+export const isSafePairingProposalConsents = rows => safeRows(rows);
+
 async function boundedBody(req) {
   if (!req.body || typeof req.body.getReader !== "function") return null;
   const reader=req.body.getReader(), chunks=[];

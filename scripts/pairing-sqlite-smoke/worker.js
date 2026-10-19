@@ -20,7 +20,7 @@ export class SmokeVault extends DurableObject {
 
   async reset() {
     return this.#store.atomic(async tx => {
-      for (const key of ["paired", "pending", "admin_actions", "consents"]) {
+      for (const key of ["paired", "pending", "admin_actions", "consents", "prepared"]) {
         await tx.put(key, []);
       }
       return "RESET";
@@ -41,6 +41,7 @@ export class SmokeVault extends DurableObject {
       await tx.put("pending", [{ id: "challenge" }]);
       await tx.put("admin_actions", [{ id: "ticket" }]);
       await tx.put("consents", [{ id: "human-proposal" }]);
+      await tx.put("prepared", [{ id: "signed-device-offer" }]);
       return "COMMITTED_THREE";
     });
   }
@@ -51,6 +52,7 @@ export class SmokeVault extends DurableObject {
         await tx.put("pending", [{ id: "CORRUPT" }]);
         await tx.put("admin_actions", [{ id: "CORRUPT" }]);
         await tx.put("consents", [{ id: "CORRUPT" }]);
+        await tx.put("prepared", [{ id: "CORRUPT" }]);
         throw Error("INTENTIONAL_ROLLBACK");
       });
     } catch (error) {
@@ -65,6 +67,7 @@ export class SmokeVault extends DurableObject {
       pending: (await tx.get("pending")) ?? [],
       admin_actions: (await tx.get("admin_actions")) ?? [],
       consents: (await tx.get("consents")) ?? [],
+      prepared: (await tx.get("prepared")) ?? [],
     }));
   }
 }
@@ -94,6 +97,7 @@ export default {
         pending_count: one.pending.length,
         admin_actions_count: one.admin_actions.length,
         consent_count: one.consents.length,
+        prepared_count: one.prepared.length,
       });
     }
     if (url.pathname !== "/smoke") return fixed(404, { state: "LOCKED" });
@@ -105,11 +109,12 @@ export default {
       requireCondition(count1 === 1 && count2 === 2, "SEQUENTIAL_PERSIST");
       const isolate = await b.inspect();
       requireCondition(isolate.paired.length === 0, "INSTALLATION_ISOLATION");
-      requireCondition(await a.commitAll() === "COMMITTED_THREE", "THREE_KEY_COMMIT");
+      requireCondition(await a.commitAll() === "COMMITTED_THREE", "FIVE_KEY_COMMIT");
       const before = await a.inspect();
       requireCondition(before.paired.length === 2 && before.pending.length === 1 &&
         before.admin_actions.length === 1 &&
-        before.consents.length === 1, "FOUR_KEY_VISIBILITY");
+        before.consents.length === 1 &&
+        before.prepared.length === 1, "FIVE_KEY_VISIBILITY");
       requireCondition(await a.failAll() === "ROLLED_BACK", "TRANSACTION_ROLLBACK");
       requireCondition(same(before, await a.inspect()), "ATOMIC_NO_PARTIAL_WRITE");
       const values = await Promise.all([a.record("c"), a.record("d")]);
@@ -120,7 +125,7 @@ export default {
       return fixed(200, {
         state: "PASS", checks: [
           "installation_isolation", "sequential_sqlite_persistence",
-          "four_key_commit", "four_key_rollback",
+          "five_key_commit", "five_key_rollback",
           "concurrent_transaction_serialization",
         ],
       });
