@@ -35,6 +35,11 @@ export class BkeWorkerPairingVault extends DurableObject {
     return this.#logic.reviewPairingConsent(command);
   }
 
+  // Private named RPC; no public device-proposal ingress is added.
+  async managePreparedDeviceProposal(command) {
+    return this.#logic.managePreparedDeviceProposal(command);
+  }
+
   async fetch(request) {
     return this.#logic.fetch(request);
   }
