@@ -6,7 +6,7 @@ import { stageDeviceFromPrivateTransport } from "../src/admin-private-device-adm
 import { BkeWorkerPairingVault } from "../src/worker-pairing-durable-store.js";
 import { parseTrustedWorkerAssignmentPayload } from "../src/admin-worker-assignments.js";
 
-const CLOCK=1_786_000_000_000;
+const CLOCK=Date.now();
 const HEX=n=>n.repeat(64);
 const KEY=Buffer.alloc(32,59).toString("base64url");
 const ACCESS={access:{aud:"0123456789abcdef0123456789abcdef",
