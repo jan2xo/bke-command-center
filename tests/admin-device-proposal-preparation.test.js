@@ -326,3 +326,31 @@ test("runtime remains locked with no device ingress HTTP endpoint or configured 
   assert.doesNotMatch(config,/BKE_ADMIN_DEVICE_PREPARATION_ENABLED/u);
   assert.match(entry,/async managePreparedDeviceProposal\(command\)/u);
 });
+
+test("new paired/pending resource collision after staging blocks Admin proposal read",async()=>{
+  const f=await fixture();
+  assert.equal((await f.sender()).state,"PREPARED_FOR_HUMAN_REVIEW");
+  const row={
+    worker_id:"other-worker",status:"PAIRED_INACTIVE",
+    identity_public_key_sha256:"a".repeat(64),
+    chatgpt_target_sha256:resources().chatgpt_target_sha256,
+    browser_profile_sha256:"b".repeat(64),bridge_identity_sha256:"c".repeat(64),
+    nonce_sha256:"d".repeat(64),registered_at_ms:f.meta.now-500,
+    enrollment_expires_at_ms:f.meta.now+100000,
+  };
+  await f.db("51").transaction(tx=>tx.put("bke:pairing:v1:paired",[row]));
+  assert.equal(await f.loader(),null);
+  assert.equal(f.db("51").get("prepared").length,1);
+});
+
+test("changed GitHub ownership after staging blocks read despite intact signed proposal",async()=>{
+  const f=await fixture();
+  assert.equal((await f.sender()).state,"PREPARED_FOR_HUMAN_REVIEW");
+  f.meta.receiverRaw=raw("51",[{
+    repository:"jan2xo/bke-worker",repository_id:22222,
+    number:10,head_sha:"a".repeat(40),state:"open",
+    labels:["bke-worker:worker-a"],
+  }]);
+  assert.equal(await f.loader(),null);
+  assert.equal(f.db("51").get("prepared").length,1);
+});
