@@ -268,3 +268,32 @@ test("no HTTP route, active lease, credential grant or Cloudflare activation", (
   assert.doesNotMatch(index, /protected-inactive-pairing/u);
   assert.doesNotMatch(wr, /BKE_ADMIN_PROTECTED_PAIRING_ENABLED/u);
 });
+
+test("stored challenge changing to BUSY blocks without fabricating IDLE", async () => {
+  const f = setup();
+  const req = await issued(f);
+  await f.storage.transaction(async tx => {
+    const pending = await tx.get("bke:pairing:v1:pending");
+    await tx.put("bke:pairing:v1:pending",
+      pending.map(row => ({ ...row, dispatch_state: "BUSY" })));
+  });
+  blocked(await f.finalize.finalize(req), "PROTECTED_PAIRING_ELIGIBILITY_DENIED");
+  assert.equal(f.storage.get("paired"), undefined);
+  assert.equal(f.storage.get("admin_actions")[0].status, "PENDING");
+});
+
+test("expired device proof fails even with a freshly issued human ticket", async () => {
+  const f = setup();
+  const req = await issued(f);
+  f.setTime(220000);
+  const refreshed = await f.tickets.issue({
+    action: "pair", worker_id: "worker-a", admin_context: ctx,
+  });
+  assert.equal(refreshed.state, "ISSUED_FOR_CONFIRMATION");
+  blocked(await f.finalize.finalize({ ...req,
+    admin_challenge_id: refreshed.challenge_id,
+    admin_one_time_nonce: refreshed.one_time_nonce,
+  }), "PROTECTED_PAIRING_DEVICE_PROOF_INVALID");
+  assert.equal(f.storage.get("paired"), undefined);
+  assert.equal(f.storage.get("admin_actions")[0].status, "PENDING");
+});
