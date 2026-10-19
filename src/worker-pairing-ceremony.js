@@ -55,6 +55,7 @@ function sameResource(a, b) {
 function safeRegistry(value) {
   if (!Array.isArray(value) || value.length > REGISTRY_LIMIT) return false;
   const ids = new Set();
+  const fingerprints = new Set();
   for (const row of value) {
     if (!row || typeof row !== "object" || !ID.test(row.worker_id || "") ||
       ids.has(row.worker_id) ||
@@ -63,6 +64,11 @@ function safeRegistry(value) {
       !HEX.test(row.nonce_sha256 || "") ||
       !RESOURCE_KEYS.every(key => HEX.test(row[key] || ""))) return false;
     ids.add(row.worker_id);
+    for (const key of ["identity_public_key_sha256", "nonce_sha256", ...RESOURCE_KEYS]) {
+      const value = key + ":" + row[key];
+      if (fingerprints.has(value)) return false;
+      fingerprints.add(value);
+    }
   }
   return true;
 }
@@ -119,7 +125,8 @@ export function createWorkerPairingCeremony({
     const prs = await snapshot();
     if (!prs) return fail("PAIRING_ASSIGNMENTS_UNAVAILABLE");
     const key = canonicalJwk(public_key);
-    const now = clock();
+    let now;
+    try { now = clock(); } catch { return fail("PAIRING_CLOCK_INVALID"); }
     if (!Number.isSafeInteger(now) || now < 0) return fail("PAIRING_CLOCK_INVALID");
     let thumbprint;
     try {
@@ -127,11 +134,14 @@ export function createWorkerPairingCeremony({
         { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
       thumbprint = await digestHex(utf8(JSON.stringify(key)), cryptoImpl.subtle);
     } catch { return fail("PAIRING_PUBLIC_KEY_INVALID"); }
-    const random = new Uint8Array(56);
-    cryptoImpl.getRandomValues(random);
-    const challenge_id = Array.from(random.slice(0, 24), b => b.toString(16).padStart(2, "0")).join("");
-    const nonce = b64url(random.slice(24));
-    const nonceHash = await digestHex(utf8(nonce), cryptoImpl.subtle);
+    let challenge_id, nonce, nonceHash;
+    try {
+      const random = new Uint8Array(56);
+      cryptoImpl.getRandomValues(random);
+      challenge_id = Array.from(random.slice(0, 24), b => b.toString(16).padStart(2, "0")).join("");
+      nonce = b64url(random.slice(24));
+      nonceHash = await digestHex(utf8(nonce), cryptoImpl.subtle);
+    } catch { return fail("PAIRING_RANDOM_UNAVAILABLE"); }
     const expires_at_ms = now + CHALLENGE_TTL_MS;
     const message = JSON.stringify([
       AUDIENCE, String(installationId), worker_id, challenge_id,
@@ -175,7 +185,8 @@ export function createWorkerPairingCeremony({
     if (!proof) return fail("PAIRING_PROOF_INVALID");
     const prs = await snapshot();
     if (!prs) return fail("PAIRING_ASSIGNMENTS_UNAVAILABLE");
-    const now = clock();
+    let now;
+    try { now = clock(); } catch { return fail("PAIRING_CLOCK_INVALID"); }
     if (!Number.isSafeInteger(now) || now < 0) return fail("PAIRING_CLOCK_INVALID");
     return atomic(async tx => {
       const paired = (await tx.get("paired")) ?? [];
