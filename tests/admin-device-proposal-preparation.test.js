@@ -106,11 +106,12 @@ async function fixture(id="51"){
   };
   let activeDevice=await device();
   const bridge={
-    async readCandidate(){meta.bridgeCalls++;return {...activeDevice};},
+    async readCandidate(){meta.bridgeCalls++;const {display,...candidate}=activeDevice;return {...candidate};},
   };
   const readAssignments=async()=>parseTrustedWorkerAssignmentPayload(structuredClone(meta.raw));
   const sender=(opts={})=>stageDeviceOriginProposal({
-    env,executionCtx:ADMIN,deviceBridge:bridge,readAssignments,
+    env,executionCtx:ADMIN,deviceBridge:bridge,
+    describeResources:async()=>structuredClone(activeDevice.display),readAssignments,
     cryptoImpl:webcrypto,clock:()=>meta.now,...opts,
   });
   const loader=(opts={})=>loadPreparedDeviceProposal({
@@ -176,14 +177,14 @@ test("no bridge and invalid platform human deny BEFORE soliciting device-origin 
 
 test("invalid device signatures, wrong key, bad resources and fabricated approval are denied",async()=>{
   const f=await fixture();
-  const valid=f.device();
+  const {display,...valid}=f.device();
   for(const tamper of [
     {...valid,async signChallenge(){return "A".repeat(86);}},
     {...valid,async signChallenge(){return "bad";}},
     {...valid,public_key:{...valid.public_key,x:"wrong"}},
     {...valid,resources:{...valid.resources,chatgpt_target_sha256:"bad"}},
     {...valid,authorized:true},
-    {...valid,display:{...valid.display,chatgpt_target:""}},
+    {...valid,display:{...display,chatgpt_target:""}},
   ]){
     blocked(await f.sender({deviceBridge:{async readCandidate(){return tamper;}}}));
   }
