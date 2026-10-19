@@ -6,6 +6,7 @@ import { evidenceFailure } from "./github-evidence-error.js";
 import { githubQuotaState } from "./github-quota.js";
 import { adminAccessConfigured, inspectAdminRuntimeAccess } from "./admin-access.js";
 import { AdminDiscoveryError, discoverGitHubRepositories } from "./admin-discovery.js";
+import { AdminWorkerAssignmentError, readAdminWorkerAssignments, publicWorkerAssignmentProjection } from "./admin-worker-assignments.js";
 
 const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label);
@@ -147,6 +148,25 @@ export async function handleRequest(request, env, createAdapter = createGitHubAd
           " · " + esc(item.visibility) + (item.archived ? " · archived" : "") +
           " · default " + esc(item.default_branch || "UNKNOWN") + "</li>") +
         "</section>");
+    }
+    // Read-only Admin ownership snapshot: separate default-OFF feature latch.
+    // This is NON_ATOMIC_ENUMERATION, never proof of a free/paired worker.
+    if (url.pathname === "/api/admin/worker-assignments") {
+      if (request.method !== "GET") return noStoreJson({ error: "METHOD_NOT_ALLOWED" }, 405);
+      if (url.search || url.hash) return noStoreJson({ error: "INVALID_QUERY" }, 400);
+      try {
+        const snapshot = await readAdminWorkerAssignments(env, executionCtx);
+        return noStoreJson(publicWorkerAssignmentProjection(snapshot));
+      } catch (error) {
+        const code = error instanceof AdminWorkerAssignmentError
+          ? error.code : "ADMIN_ASSIGNMENT_BROKER_UNAVAILABLE";
+        const status = code === "ADMIN_ASSIGNMENT_READ_DISABLED" ? 404 :
+          code === "ADMIN_ASSIGNMENT_ACCESS_DENIED" ? 403 : 503;
+        return noStoreJson({
+          error: code,
+          state: status === 404 ? "LOCKED" : status === 403 ? "DENIED" : "UNKNOWN",
+        }, status);
+      }
     }
     // Explicitly selected recent CI incidents only. No arbitrary job/log
     // enumeration, no polling and no expensive job fanout on the homepage.
