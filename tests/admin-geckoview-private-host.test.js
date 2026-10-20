@@ -18,6 +18,11 @@ const enabledEnv = (extra={}) => ({
   BKE_ADMIN_PR_INVENTORY_ENABLED:"true", BKE_ADMIN_PAIRING_ACTIONS_ENABLED:"true",
   BKE_ADMIN_PAIRING_REVIEW_ENABLED:"true", BKE_ADMIN_PROPOSAL_CONSENT_ENABLED:"true",
   BKE_ADMIN_DEVICE_PREPARATION_ENABLED:"true", BKE_NATIVE_DEVICE_ADMISSION_ENABLED:"true",
+  BKE_PAIRING_RPC_KEY_B64:Buffer.alloc(32,59).toString("base64url"),
+  BKE_WORKER_PAIRING_VAULT:{
+    idFromName:name=>({toString:()=>name}),
+    get:()=>({async managePreparedDeviceProposal(){return {state:"BLOCKED",code:"TEST_DOWNSTREAM_BLOCK"};}}),
+  },
   ...extra,
 });
 const hash = char => char.repeat(64);
