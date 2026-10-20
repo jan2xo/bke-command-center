@@ -42,7 +42,7 @@ test("enabled adapter refuses missing or invalid server-pinned attestor key", as
   };
   const adapter = createGeckoViewPrivateHostAdapter({
     env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
-    trustedHost, pinnedPublicKey: { ...PIN, trusted: true },
+    trustedHost, pinnedPublicKey: undefined,
     describeResources: async () => ({}), cryptoImpl: webcrypto,
   });
   assert.deepEqual(await adapter.stage({}), {
