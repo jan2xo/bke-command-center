@@ -26,13 +26,13 @@ const enabledEnv = (extra={}) => ({
   ...extra,
 });
 const hash = char => char.repeat(64);
-function signedHost(source, counters={}) {
+function signedHost(source, counters={}, options={}) {
   const binding = {
     audience:"bke-command-center/preproduction/native-device-admission/v1",
     source, worker_id:"worker-a",
     identity_public_key_sha256:hash("1"), session_binding_sha256:hash("2"),
     chatgpt_target_sha256:hash("3"), browser_profile_sha256:hash("4"),
-    bridge_identity_sha256:hash("5"), expires_at_ms:Date.now()+20_000,
+    bridge_identity_sha256:hash("5"), expires_at_ms:options.expiry ?? Date.now()+20_000,
   };
   const link = {
     async readCandidate() { counters.reads=(counters.reads||0)+1; throw Error("intentional downstream stop"); },
@@ -44,9 +44,13 @@ function signedHost(source, counters={}) {
       async resolveExclusiveLink(){counters.resolves=(counters.resolves||0)+1;return link;},
       async requestSignedBinding(_link,challenge){
         counters.signs=(counters.signs||0)+1;
+        if(options.throwExchange) throw Error("private transport detail");
+        const current = options.bindingForCall
+          ? options.bindingForCall(counters.signs, binding) : binding;
         const bytes=await webcrypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},attestorKeys.privateKey,
-          new TextEncoder().encode(privateAttestorMessage(challenge.request_nonce,binding)));
-        return {version:1,request_nonce:challenge.request_nonce,binding,signature:Buffer.from(bytes).toString("base64url")};
+          new TextEncoder().encode(privateAttestorMessage(challenge.request_nonce,current)));
+        return {version:1,request_nonce:options.wrongNonce ? challenge.request_nonce+"x" : challenge.request_nonce,
+          binding:current,signature:Buffer.from(bytes).toString("base64url")};
       },
     },
   };
@@ -239,6 +243,52 @@ test("real pinned P-256 GeckoView attestation passes origin gate to nonprivilege
   assert.ok(counters.signs >= 1);
   assert.ok(counters.reads >= 1, JSON.stringify({result,counters}));
   assert.equal(result.pairing_authority,undefined);
+});
+
+
+test("wrong nonce, stale binding, wrong pin and uncertain exchange all fail closed", async () => {
+  const cases = [
+    {name:"wrong nonce",options:{wrongNonce:true},pin:PIN},
+    {name:"stale binding",options:{expiry:Date.now()-1000},pin:PIN},
+    {name:"uncertain exchange",options:{throwExchange:true},pin:PIN},
+  ];
+  const otherKeys = await webcrypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign","verify"]);
+  const otherJwk = await webcrypto.subtle.exportKey("jwk",otherKeys.publicKey);
+  cases.push({name:"wrong pin",options:{},pin:{kty:"EC",crv:"P-256",x:otherJwk.x,y:otherJwk.y}});
+  for (const c of cases) {
+    const counters={};
+    const host=signedHost("GECKOVIEW_EXTENSION_NATIVE",counters,c.options);
+    const adapter=createGeckoViewPrivateHostAdapter({
+      env:enabledEnv(),trustedHost:host.trustedHost,pinnedPublicKey:c.pin,
+      describeResources:async()=>({chatgpt_target:"test target",browser_profile:"test profile",bridge_identity:"test bridge"}),
+      readAssignments:async()=>({state:"OBSERVED_ONLY",source:"GITHUB_APP_INSTALLATION",
+        consistency:"NON_ATOMIC_ENUMERATION",dispatch_authority:"NONE",trusted_installation_id:"51",worker_claims:[]}),
+      cryptoImpl:webcrypto,
+    });
+    const result=await adapter.stage({executionCtx:ACCESS});
+    assert.equal(result.state,"BLOCKED",c.name);
+    assert.equal(counters.reads||0,0,c.name);
+    assert.equal(result.pairing_authority,undefined,c.name);
+  }
+});
+
+test("session/profile binding switch between signed checks fails before candidate read", async () => {
+  const counters={};
+  const host=signedHost("GECKOVIEW_EXTENSION_NATIVE",counters,{
+    bindingForCall(call,binding) {
+      return call <= 1 ? binding : {...binding,browser_profile_sha256:hash("6")};
+    },
+  });
+  const adapter=createGeckoViewPrivateHostAdapter({
+    env:enabledEnv(),trustedHost:host.trustedHost,pinnedPublicKey:PIN,
+    describeResources:async()=>({chatgpt_target:"test target",browser_profile:"test profile",bridge_identity:"test bridge"}),
+    readAssignments:async()=>({state:"OBSERVED_ONLY",source:"GITHUB_APP_INSTALLATION",
+      consistency:"NON_ATOMIC_ENUMERATION",dispatch_authority:"NONE",trusted_installation_id:"51",worker_claims:[]}),
+    cryptoImpl:webcrypto,
+  });
+  const result=await adapter.stage({executionCtx:ACCESS});
+  assert.equal(result.state,"BLOCKED");
+  assert.equal(counters.reads||0,0);
 });
 
 test("module stays disconnected from public routes and Cloudflare bindings", () => {
