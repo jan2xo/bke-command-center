@@ -83,7 +83,61 @@ test("resolver failure and malformed private links fail closed without retry", a
   });
 });
 
-test("module stays disconnected from public routes and Cloudflare bindings", () => {
+
+test("a disabled adapter cannot be enabled by mutating its environment later", async () => {
+  const env = {};
+  let resolves = 0;
+  const adapter = createGeckoViewPrivateHostAdapter({
+    env,
+    trustedHost: {
+      async resolveExclusiveLink() { resolves++; return {}; },
+      async requestSignedBinding() { throw Error("must not run"); },
+    },
+    pinnedPublicKey: PIN,
+    describeResources: async () => ({}),
+    cryptoImpl: webcrypto,
+  });
+  env.BKE_GECKOVIEW_PRIVATE_HOST_ENABLED = "true";
+  assert.deepEqual(await adapter.stage({}), {
+    state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_LOCKED",
+  });
+  assert.equal(resolves, 0);
+});
+
+test("adapter serializes admission attempts while a private link is resolving", async () => {
+  let enterResolver;
+  let releaseResolver;
+  const entered = new Promise(resolve => { enterResolver = resolve; });
+  const hold = new Promise(resolve => { releaseResolver = resolve; });
+  let resolves = 0;
+  const adapter = createGeckoViewPrivateHostAdapter({
+    env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
+    trustedHost: {
+      async resolveExclusiveLink() {
+        resolves++;
+        enterResolver();
+        await hold;
+        return {};
+      },
+      async requestSignedBinding() { throw Error("must not run"); },
+    },
+    pinnedPublicKey: PIN,
+    describeResources: async () => ({}),
+    cryptoImpl: webcrypto,
+  });
+  const first = adapter.stage({});
+  await entered;
+  assert.deepEqual(await adapter.stage({}), {
+    state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_BUSY",
+  });
+  assert.equal(resolves, 1);
+  releaseResolver();
+  assert.deepEqual(await first, {
+    state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_LINK_INVALID",
+  });
+  assert.equal(resolves, 1);
+});
+\ntest("module stays disconnected from public routes and Cloudflare bindings", () => {
   const source = readFileSync(new URL("../src/admin-geckoview-private-host.js", import.meta.url), "utf8");
   const entry = readFileSync(new URL("../src/cloudflare-worker-entry.js", import.meta.url), "utf8");
   const index = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
