@@ -224,7 +224,7 @@ test("real pinned P-256 GeckoView attestation passes origin gate to nonprivilege
   const result = await adapter.stage({executionCtx:ACCESS});
   assert.equal(result.state,"BLOCKED");
   assert.ok(counters.signs >= 1);
-  assert.ok(counters.reads >= 1);
+  assert.ok(counters.reads >= 1, JSON.stringify({result,counters}));
   assert.equal(result.pairing_authority,undefined);
 });
 
