@@ -219,7 +219,15 @@ test("real pinned P-256 GeckoView attestation passes origin gate to nonprivilege
   const host = signedHost("GECKOVIEW_EXTENSION_NATIVE", counters);
   const adapter = createGeckoViewPrivateHostAdapter({
     env: enabledEnv(), trustedHost: host.trustedHost, pinnedPublicKey: PIN,
-    describeResources: async () => ({}), cryptoImpl: webcrypto,
+    describeResources: async () => ({
+      chatgpt_target:"test target",browser_profile:"test profile",bridge_identity:"test bridge",
+    }),
+    readAssignments: async () => ({
+      state:"OBSERVED_ONLY",source:"GITHUB_APP_INSTALLATION",
+      consistency:"NON_ATOMIC_ENUMERATION",dispatch_authority:"NONE",
+      trusted_installation_id:"51",worker_claims:[],
+    }),
+    cryptoImpl: webcrypto,
   });
   const result = await adapter.stage({executionCtx:ACCESS});
   assert.equal(result.state,"BLOCKED");
