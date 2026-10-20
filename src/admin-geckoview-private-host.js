@@ -16,7 +16,7 @@ export function createGeckoViewPrivateHostAdapter({
   env, trustedHost, pinnedPublicKey, describeResources, readAssignments,
   cryptoImpl = crypto, clock = () => Date.now(), timeoutMs = 10_000,
 } = {}) {
-  if (!enabled(env)) return Object.freeze({
+  // Enabling is latched at construction: mutating a previously-off environment\n  // object later cannot turn this adapter on. Runtime disable remains immediate.\n  const enabledAtConstruction = enabled(env);\n  if (!enabledAtConstruction) return Object.freeze({
     async stage() { return block("GECKOVIEW_PRIVATE_HOST_LOCKED"); },
   });
 
@@ -45,7 +45,7 @@ export function createGeckoViewPrivateHostAdapter({
   let busy = false;
   const adapter = {
     async stage({ executionCtx } = {}) {
-      if (!enabled(env)) return block("GECKOVIEW_PRIVATE_HOST_LOCKED");
+      if (!enabledAtConstruction || !enabled(env)) return block("GECKOVIEW_PRIVATE_HOST_LOCKED");
       if (busy) return block("GECKOVIEW_PRIVATE_HOST_BUSY");
       busy = true;
       try {
