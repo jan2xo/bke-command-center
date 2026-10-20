@@ -70,7 +70,7 @@ test("enabled adapter fails closed when trusted server host is absent", async ()
     env: enabledEnv(),
     describeResources: async () => ({}), cryptoImpl: webcrypto,
   });
-  assert.deepEqual(await adapter.stage({}), {
+  assert.deepEqual(await adapter.stage({executionCtx: ACCESS}), {
     state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_ADAPTER_REQUIRED",
   });
 });
@@ -82,11 +82,11 @@ test("enabled adapter refuses missing or invalid server-pinned attestor key", as
     async requestSignedBinding() { return {}; },
   };
   const adapter = createGeckoViewPrivateHostAdapter({
-    env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
+    env: enabledEnv(),
     trustedHost, pinnedPublicKey: undefined,
     describeResources: async () => ({}), cryptoImpl: webcrypto,
   });
-  assert.deepEqual(await adapter.stage({}), {
+  assert.deepEqual(await adapter.stage({executionCtx: ACCESS}), {
     state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_ATTESTOR_NOT_CONFIGURED",
   });
   assert.equal(resolves, 0);
@@ -95,7 +95,7 @@ test("enabled adapter refuses missing or invalid server-pinned attestor key", as
 test("resolver failure and malformed private links fail closed without retry", async () => {
   let resolves = 0;
   const adapter = createGeckoViewPrivateHostAdapter({
-    env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
+    env: enabledEnv(),
     trustedHost: {
       async resolveExclusiveLink() { resolves++; throw Error("private host detail"); },
       async requestSignedBinding() { throw Error("must not run"); },
@@ -103,15 +103,15 @@ test("resolver failure and malformed private links fail closed without retry", a
     pinnedPublicKey: PIN,
     describeResources: async () => ({}), cryptoImpl: webcrypto,
   });
-  assert.deepEqual(await adapter.stage({}), {
+  assert.deepEqual(await adapter.stage({executionCtx: ACCESS}), {
     state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_UNAVAILABLE",
   });
   assert.equal(resolves, 1);
-  assert.doesNotMatch(JSON.stringify(await adapter.stage({})), /private host detail/u);
+  assert.doesNotMatch(JSON.stringify(await adapter.stage({executionCtx: ACCESS})), /private host detail/u);
   assert.equal(resolves, 2);
 
   const malformed = createGeckoViewPrivateHostAdapter({
-    env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
+    env: enabledEnv(),
     trustedHost: {
       async resolveExclusiveLink() { return { worker_id: "claimed-by-client" }; },
       async requestSignedBinding() { throw Error("must not run"); },
@@ -139,7 +139,7 @@ test("a disabled adapter cannot be enabled by mutating its environment later", a
     cryptoImpl: webcrypto,
   });
   env.BKE_GECKOVIEW_PRIVATE_HOST_ENABLED = "true";
-  assert.deepEqual(await adapter.stage({}), {
+  assert.deepEqual(await adapter.stage({executionCtx: ACCESS}), {
     state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_LOCKED",
   });
   assert.equal(resolves, 0);
@@ -152,7 +152,7 @@ test("adapter serializes admission attempts while a private link is resolving", 
   const hold = new Promise(resolve => { releaseResolver = resolve; });
   let resolves = 0;
   const adapter = createGeckoViewPrivateHostAdapter({
-    env: { BKE_GECKOVIEW_PRIVATE_HOST_ENABLED: "true" },
+    env: enabledEnv(),
     trustedHost: {
       async resolveExclusiveLink() {
         resolves++;
@@ -168,7 +168,7 @@ test("adapter serializes admission attempts while a private link is resolving", 
   });
   const first = adapter.stage({executionCtx: ACCESS});
   await entered;
-  assert.deepEqual(await adapter.stage({}), {
+  assert.deepEqual(await adapter.stage({executionCtx: ACCESS}), {
     state: "BLOCKED", code: "GECKOVIEW_PRIVATE_HOST_BUSY",
   });
   assert.equal(resolves, 1);
@@ -178,7 +178,8 @@ test("adapter serializes admission attempts while a private link is resolving", 
   });
   assert.equal(resolves, 1);
 });
-\n
+
+
 test("missing, forged, or non-allowlisted Admin Access cannot touch the private host", async () => {
   const counters = {};
   const host = signedHost("GECKOVIEW_EXTENSION_NATIVE", counters);
@@ -226,7 +227,8 @@ test("real pinned P-256 GeckoView attestation passes origin gate to nonprivilege
   assert.ok(counters.reads >= 1);
   assert.equal(result.pairing_authority,undefined);
 });
-\ntest("module stays disconnected from public routes and Cloudflare bindings", () => {
+
+test("module stays disconnected from public routes and Cloudflare bindings", () => {
   const source = readFileSync(new URL("../src/admin-geckoview-private-host.js", import.meta.url), "utf8");
   const entry = readFileSync(new URL("../src/cloudflare-worker-entry.js", import.meta.url), "utf8");
   const index = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
