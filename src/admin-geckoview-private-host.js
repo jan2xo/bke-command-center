@@ -4,9 +4,17 @@
 // Never import this module from an HTTP route or derive trustedHost from request data.
 import { createPinnedDevicePeerAuthorizer } from "./admin-pinned-device-attestor.js";
 import { stageDeviceFromPrivateTransport } from "./admin-private-device-admission.js";
+import { inspectAdminRuntimeAccess } from "./admin-access.js";
 
 const block = code => Object.freeze({ state: "BLOCKED", code });
 const enabled = env => env?.BKE_GECKOVIEW_PRIVATE_HOST_ENABLED === "true";
+const GATEWAY_FLAGS = [
+  "BKE_PREPRODUCTION", "BKE_ACCESS_POLICY_VERIFIED",
+  "BKE_ADMIN_PR_INVENTORY_ENABLED", "BKE_ADMIN_PAIRING_ACTIONS_ENABLED",
+  "BKE_ADMIN_PAIRING_REVIEW_ENABLED", "BKE_ADMIN_PROPOSAL_CONSENT_ENABLED",
+  "BKE_ADMIN_DEVICE_PREPARATION_ENABLED", "BKE_NATIVE_DEVICE_ADMISSION_ENABLED",
+];
+const gatewayEnabled = env => GATEWAY_FLAGS.every(key => env?.[key] === "true");
 
 // TrustedHost is server-owned configuration supplied at process composition,
 // not a device/client value. Its resolver must return an exclusive private link
@@ -32,8 +40,14 @@ export function createGeckoViewPrivateHostAdapter({
   try {
     authorizePeer = createPinnedDevicePeerAuthorizer({
       pinnedPublicKey,
-      requestSignedBinding: (link, challenge) =>
-        trustedHost.requestSignedBinding(link, challenge),
+      requestSignedBinding: async (link, challenge) => {
+        const binding = await trustedHost.requestSignedBinding(link, challenge);
+        // A GeckoView-specific adapter must never accept desktop-native or
+        // cross-surface evidence. This wrapper runs for each gateway recheck.
+        if (binding?.binding?.source !== "GECKOVIEW_EXTENSION_NATIVE")
+          throw Error("GECKOVIEW_PRIVATE_HOST_SOURCE_REJECTED");
+        return binding;
+      },
       cryptoImpl, clock, timeoutMs,
     });
   } catch {
@@ -42,10 +56,18 @@ export function createGeckoViewPrivateHostAdapter({
     });
   }
 
+  // Enforce the complete gateway feature lock and platform-verified human
+  // Admin identity before touching the native/private host. The gateway repeats
+  // these checks at its own boundary to avoid relying on this outer guard alone.
   let busy = false;
   const adapter = {
     async stage({ executionCtx } = {}) {
-      if (!enabledAtConstruction || !enabled(env)) return block("GECKOVIEW_PRIVATE_HOST_LOCKED");
+      if (!enabledAtConstruction || !enabled(env) || !gatewayEnabled(env))
+        return block("GECKOVIEW_PRIVATE_HOST_LOCKED");
+      let access;
+      try { access = await inspectAdminRuntimeAccess(executionCtx, env); }
+      catch { return block("GECKOVIEW_PRIVATE_HOST_ADMIN_DENIED"); }
+      if (access !== "AUTHORIZED") return block("GECKOVIEW_PRIVATE_HOST_ADMIN_DENIED");
       if (busy) return block("GECKOVIEW_PRIVATE_HOST_BUSY");
       busy = true;
       try {
