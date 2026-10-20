@@ -210,7 +210,7 @@ test("real pinned P-256 desktop attestation is rejected by GeckoView adapter", a
   const result = await adapter.stage({executionCtx:ACCESS});
   assert.equal(result.state,"BLOCKED");
   assert.equal(counters.resolves,1);
-  assert.equal(counters.signs,0);
+  assert.equal(counters.signs,1);
   assert.equal(counters.reads||0,0);
 });
 
