@@ -179,13 +179,8 @@ test("non-200, redirect and mismatched source fail closed", async () => {
 
 test("network failure blocks and an actual abort deadline is enforced", async () => {
   assert.equal((await loader({ fetchImpl: async () => { throw new Error("offline"); } }).load()).code, "FETCH_FAILED");
-  const timed = loader({ fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
-    options.signal.addEventListener("abort", () => {
-      const error = new Error("aborted by bounded request deadline");
-      error.name = "AbortError";
-      reject(error);
-    }, { once: true });
-  }) });
+  // Deliberately ignore AbortSignal: the loader's Promise.race must still enforce its deadline.
+  const timed = loader({ fetchImpl: async () => new Promise(() => {}) });
   assert.equal((await timed.load()).code, "FETCH_TIMEOUT");
 });
 
