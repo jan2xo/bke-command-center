@@ -72,7 +72,7 @@ try {
   const denied = await response("/unknown");
   assert.equal(denied.status, 404, "LOCAL_DO_UNKNOWN_PATH_NOT_DENIED");
   process.stdout.write("BKE LOCAL SQLITE DURABLE OBJECT SMOKE: PASS\n");
-  process.stdout.write("isolation, persistence, five-key rollback, concurrency, HTTP deny\n");
+  process.stdout.write("isolation, persistence, rollback, concurrency, proof challenge claim/finalize/replay, HTTP deny\n");
 } catch (error) {
   process.stderr.write("BKE LOCAL SQLITE DURABLE OBJECT SMOKE: FAIL\n");
   process.stderr.write(String(error?.message || "UNKNOWN") + "\n");
