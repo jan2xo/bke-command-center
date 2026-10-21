@@ -30,16 +30,27 @@ const integer=(n)=>tlv(0x02,Buffer.from([n]));
 const enumerated=(n)=>tlv(0x0a,Buffer.from([n]));
 const octet=(b)=>tlv(0x04,b);
 
-function keyDescription(initialChallenge, signerDigest, securityLevel=2) {
+function rootOfTrust({locked=true,bootState=0,placement="hardware"}={}) {
+  const body=seq(octet(Buffer.alloc(32,0x77)),tlv(0x01,Buffer.from([locked?0xff:0x00])),enumerated(bootState),octet(Buffer.alloc(32,0x66)));
+  const tag704=highTag([0xbf,0x85,0x40],body);
+  return tag704;
+}
+function keyDescription(initialChallenge, signerDigest, {securityLevel=2,locked=true,bootState=0,rootPlacement="hardware",rootCopies=1,applicationIdPlacement="software",omitRoot=false}={}) {
   const pkgInfo=seq(octet(Buffer.from(PACKAGE,"utf8")),integer(1));
   const appId=seq(set(pkgInfo),set(octet(signerDigest)));
   // AuthorizationList attestationApplicationId [709] EXPLICIT OCTET_STRING.
   const appIdTag=highTag([0xbf,0x85,0x45],octet(appId));
+  const rootTag=rootOfTrust({locked,bootState});
+  let software=[],hardware=[];
+  if(applicationIdPlacement==="software") software.push(appIdTag); else hardware.push(appIdTag);
+  if(!omitRoot && rootPlacement==="software") software.push(rootTag);
+  if(!omitRoot && rootPlacement==="hardware") for(let i=0;i<rootCopies;i++) hardware.push(rootTag);
   return seq(integer(4),enumerated(securityLevel),integer(4),enumerated(securityLevel),
-    octet(initialChallenge),octet(Buffer.alloc(0)),seq(appIdTag),seq());
+    octet(initialChallenge),octet(Buffer.alloc(0)),seq(...software),seq(...hardware));
 }
 
-function makeCertFixture({securityLevel=2}={}) {
+function makeCertFixture(options={}) {
+  const {securityLevel=2}=options;
   const directory=mkdtempSync(join(tmpdir(),"bke-android-attestation-"));
   const rootKey=join(directory,"root.key"),rootPem=join(directory,"root.pem");
   const intermediateKey=join(directory,"intermediate.key"),intermediateCsr=join(directory,"intermediate.csr"),intermediatePem=join(directory,"intermediate.pem");
@@ -65,7 +76,7 @@ function makeCertFixture({securityLevel=2}={}) {
     "-days","3650","-sha256","-extfile",intermediateConfig,"-extensions","intermediate","-out",intermediatePem]);
   run(["ecparam","-name","prime256v1","-genkey","-noout","-out",leafKey]);
   run(["req","-new","-key",leafKey,"-subj","/CN=BKE Test Attested Android Key","-out",leafCsr]);
-  const extension=keyDescription(initialChallenge,signerDigest,securityLevel).toString("hex");
+  const extension=keyDescription(initialChallenge,signerDigest,options).toString("hex");
   const config=join(directory,"leaf.cnf");
   writeFileSync(config,
     "[leaf]\n"+
