@@ -5,7 +5,7 @@ import { BkeWorkerPairingVault as VaultLogic } from "./worker-pairing-durable-st
 export default commandCenter;
 export class BkeWorkerPairingVault extends DurableObject {
   #logic;
-  constructor(ctx,env){super(ctx,env);this.#logic=new VaultLogic(ctx,env);}
+  constructor(ctx, env) { super(ctx, env); this.#logic = new VaultLogic(ctx, env); }
   async attestInstallation(request){return this.#logic.attestInstallation(request);}
   async finalizeProtectedInactivePairing(request){return this.#logic.finalizeProtectedInactivePairing(request);}
   async issueAtomicPairingInvitation(request){return this.#logic.issueAtomicPairingInvitation(request);}
