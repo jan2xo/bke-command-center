@@ -58,9 +58,10 @@ try {
   assert.deepEqual(execution.data, {
     state: "PASS", checks: [
       "installation_isolation", "sequential_sqlite_persistence",
-      "five_key_commit", "five_key_rollback",
-      "concurrent_transaction_serialization",
-      "proof_challenge_issue_claim_finalize",
+      "five_key_rollback", "pairing_concurrency",
+      "proof_issue", "concurrent_exclusive_claim",
+      "canonical_32_byte_nonce", "terminal_consumption", "replay_denial",
+      "terminal_persistence", "trusted_context_required",
     ],
   });
   const later = await response("/verify");
