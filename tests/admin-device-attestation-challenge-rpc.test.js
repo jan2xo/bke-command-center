@@ -546,3 +546,76 @@ test("consume revalidates challenge expiry after delayed storage read at and bey
     assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
   }
 });
+
+
+function delayChallengeStorageWrite(api) {
+  const hold = deferredGate();
+  const baseStore = createPairingAtomicStore(api.storage);
+  const store = {
+    atomic: operation => baseStore.atomic(tx => operation({
+      get: key => tx.get(key),
+      put: async (key, value) => {
+        if (key === "attestation_challenges") {
+          hold.markEntered();
+          await hold.gate;
+        }
+        return tx.put(key, value);
+      },
+    })),
+  };
+  return { store, entered: hold.entered, release: hold.release };
+}
+
+test("issue rolls back if the durable write crosses signed-command expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    let now = NOW;
+    const request = await signed("issue", {
+      operation_id: (offset === 0 ? "d" : "e").repeat(64),
+      expires_at_ms: NOW + 10_000,
+    });
+    const delayed = delayChallengeStorageWrite(api);
+    const pending = invokeWith(api, request, {
+      store: delayed.store,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = request.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_ISSUE_OUTCOME_UNCERTAIN");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.has(STORAGE_KEY), false, "expired write must roll back");
+  }
+});
+
+test("consume rolls back if the durable write crosses challenge expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    const { result: issued } = await issue(api, {
+      operation_id: (offset === 0 ? "f" : "0").repeat(64),
+      expires_at_ms: NOW + 5_000,
+    });
+    assert.equal(issued.state, "CHALLENGE_ISSUED");
+    let now = NOW;
+    const request = await consumeRequest(issued, {
+      operation_id: (offset === 0 ? "1" : "2").repeat(64),
+      expires_at_ms: NOW + 30_000,
+    });
+    const delayed = delayChallengeStorageWrite(api);
+    const pending = invokeWith(api, request, {
+      store: delayed.store,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = issued.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null,
+      "expired consume write must roll back");
+  }
+});
