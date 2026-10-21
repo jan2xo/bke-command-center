@@ -91,7 +91,7 @@ function makeCertFixture({securityLevel=2}={}) {
     proofChallenge:{workerId:WORKER,challengeBase64Url:base64url(proofChallenge),issuedAtMs:nowMs-1000,expiresAtMs:nowMs+60_000,state:"CLAIMED"},
     revocationSnapshot:{source:STATUS_URL,fetchedAtMs:nowMs,cacheMaxAgeMs:60*60_000,entries:{}},
   };
-  return {directory,evidence,context,leafSerial:leafDer.serialNumber.toLowerCase(),rootSerial:rootDer.serialNumber.toLowerCase()};
+  return {directory,evidence,context,leafSerial:leafDer.serialNumber.toLowerCase().replace(/^0+(?=[0-9a-f])/u,"")||"0",rootSerial:rootDer.serialNumber.toLowerCase().replace(/^0+(?=[0-9a-f])/u,"")||"0"};
 }
 
 let fixture;
@@ -131,9 +131,9 @@ test("rejects the wrong app signer and the wrong original key-attestation challe
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:fixture.evidence,serverContext:wrongInitial}).code,"ANDROID_EVIDENCE_BINDING_MISMATCH");
 });
 
-test("rejects changed payload signature, stale revocation cache, and revoked attestation certificates",()=>{
-  const changed={...fixture.evidence,bridgeId:"523e4567-e89b-42d3-a456-426614174004"};
-  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:changed,serverContext:fixture.context}).state,"BLOCKED");
+test("rejects a changed signature, stale revocation cache, and revoked attestation certificates",()=>{
+  const tampered={...fixture.evidence,signatureBase64Url:base64url(Buffer.alloc(64,0x99))};
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:tampered,serverContext:fixture.context}).state,"BLOCKED");
   const stale={...fixture.context,revocationSnapshot:{...fixture.context.revocationSnapshot,fetchedAtMs:Date.now()-8*24*60*60_000}};
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:fixture.evidence,serverContext:stale}).code,"REVOCATION_STATUS_UNAVAILABLE_OR_STALE");
   const revoked={...fixture.context,revocationSnapshot:{...fixture.context.revocationSnapshot,entries:{[fixture.leafSerial]:{status:"REVOKED",reason:"KEY_COMPROMISE"}}}};
