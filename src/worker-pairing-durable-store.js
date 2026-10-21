@@ -14,6 +14,7 @@ const KEY = Object.freeze({
   consents: "bke:pairing:v1:consents",
   prepared: "bke:pairing:v1:prepared",
   attestation_challenges: "bke:pairing:v1:attestation_challenges",
+  attestation_challenge_clock: "bke:pairing:v1:attestation_challenge_clock",
 });
 const MAX_ROWS = 100;
 const MAX_SERIALIZED_BYTES = 262_144;
