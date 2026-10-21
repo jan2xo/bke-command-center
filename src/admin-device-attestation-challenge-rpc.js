@@ -127,11 +127,34 @@ function validStoredRow(row) {
     INSTALLATION.test(row.installation_id) && WORKER.test(row.worker_id) &&
     row.audience === AUDIENCE && row.purpose === PURPOSE &&
     Number.isSafeInteger(row.issued_at_ms) && row.issued_at_ms > 0 &&
-    Number.isSafeInteger(row.expires_at_ms) && row.expires_at_ms > row.issued_at_ms &&
+    Number.isSafeInteger(row.expires_at_ms) &&
+    row.expires_at_ms > row.issued_at_ms &&
+    row.expires_at_ms <= row.issued_at_ms + MAX_TTL_MS &&
     HEX64.test(row.issue_operation_id) &&
-    (row.consumed_at_ms === null || Number.isSafeInteger(row.consumed_at_ms)) &&
+    (row.consumed_at_ms === null ||
+      (Number.isSafeInteger(row.consumed_at_ms) &&
+        row.consumed_at_ms >= row.issued_at_ms &&
+        row.consumed_at_ms < row.expires_at_ms)) &&
     (row.consume_operation_id === null || HEX64.test(row.consume_operation_id)) &&
     ((row.consumed_at_ms === null) === (row.consume_operation_id === null));
+}
+
+function validLedger(rows) {
+  if (!Array.isArray(rows) || rows.length > MAX_ROWS ||
+      rows.some(row => !validStoredRow(row))) return false;
+  const ids = new Set();
+  const issueOperations = new Set();
+  const consumeOperations = new Set();
+  for (const row of rows) {
+    if (ids.has(row.challenge_id) || issueOperations.has(row.issue_operation_id)) return false;
+    ids.add(row.challenge_id);
+    issueOperations.add(row.issue_operation_id);
+    if (row.consume_operation_id !== null) {
+      if (consumeOperations.has(row.consume_operation_id)) return false;
+      consumeOperations.add(row.consume_operation_id);
+    }
+  }
+  return true;
 }
 
 async function sha256Hex(value, cryptoImpl) {
@@ -170,9 +193,7 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
   try {
     return await store.atomic(async tx => {
       const current = (await tx.get("attestation_challenges")) || [];
-      if (!Array.isArray(current) || current.some(row => !validStoredRow(row))) {
-        throw new Error("STORAGE_SHAPE_INVALID");
-      }
+      if (!validLedger(current)) throw new Error("STORAGE_SHAPE_INVALID");
       const live = current.filter(row => row.expires_at_ms > now);
       if (live.length !== current.length) await tx.put("attestation_challenges", live);
       if (live.some(row => row.issue_operation_id === request.operation_id)) {
@@ -242,9 +263,7 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
   try {
     return await store.atomic(async tx => {
       const rows = (await tx.get("attestation_challenges")) || [];
-      if (!Array.isArray(rows) || rows.some(candidate => !validStoredRow(candidate))) {
-        throw new Error("STORAGE_SHAPE_INVALID");
-      }
+      if (!validLedger(rows)) throw new Error("STORAGE_SHAPE_INVALID");
       const row = rows.find(candidate => candidate.challenge_id === request.challenge_id);
       if (!row) return block("ATTESTATION_CHALLENGE_UNKNOWN");
       if (row.installation_id !== request.installation_id ||
@@ -257,6 +276,9 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
       }
       if (row.consumed_at_ms !== null || row.consume_operation_id !== null) {
         return block("ATTESTATION_CHALLENGE_REPLAY");
+      }
+      if (rows.some(candidate => candidate.consume_operation_id === request.operation_id)) {
+        return block("ATTESTATION_CHALLENGE_CONSUME_OPERATION_REPLAY");
       }
       if (row.challenge_sha256 !== challengeHash) {
         return block("ATTESTATION_CHALLENGE_VALUE_MISMATCH");
