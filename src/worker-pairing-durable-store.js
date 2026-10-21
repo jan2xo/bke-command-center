@@ -66,6 +66,19 @@ function safeProofRows(rows) {
   }
   return true;
 }
+function proofScope(env, objectId, installationId) {
+  if (!INSTALLATION.test(installationId) || typeof objectId?.toString !== "function" ||
+      typeof env?.BKE_WORKER_PAIRING_VAULT?.idFromName !== "function") {
+    return block("PROOF_CHALLENGE_INSTALLATION_SCOPE_INVALID");
+  }
+  try {
+    const expected = env.BKE_WORKER_PAIRING_VAULT.idFromName("installation:" + installationId);
+    if (typeof expected?.toString !== "function" || expected.toString() !== objectId.toString()) {
+      return block("PROOF_CHALLENGE_OBJECT_MISMATCH");
+    }
+    return null;
+  } catch { return block("PROOF_CHALLENGE_INSTALLATION_SCOPE_UNAVAILABLE"); }
+}
 function nowMs(clock) {
   try {
     const n = clock();
