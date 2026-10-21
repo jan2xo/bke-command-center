@@ -336,3 +336,51 @@ test("operation IDs cannot be reused across issue and consume actions", async ()
     "ATTESTATION_CHALLENGE_ISSUE_REPLAY");
   assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
 });
+
+
+test("uncertain post-commit outcomes fail closed and a retry cannot mint or consume twice", async () => {
+  const api = setup();
+  const baseStore = createPairingAtomicStore(api.storage);
+  const uncertainAfterCommit = {
+    async atomic(operation) {
+      await baseStore.atomic(operation);
+      throw new Error("simulated lost response after commit");
+    },
+  };
+
+  const issueRequest = await signed("issue", { operation_id: "d".repeat(64) });
+  const issueResult = await receiveDeviceAttestationChallenge({
+    request: issueRequest, env: api.env, objectId: api.objectId,
+    store: uncertainAfterCommit, cryptoImpl: webcrypto, clock: () => NOW,
+  });
+  assert.equal(issueResult.code, "ATTESTATION_CHALLENGE_ISSUE_OUTCOME_UNCERTAIN");
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+  const issueRetry = await api.run(issueRequest);
+  assert.equal(issueRetry.code, "ATTESTATION_CHALLENGE_ISSUE_REPLAY");
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+
+  const persisted = api.storage.data.get(STORAGE_KEY)[0];
+  // The plaintext challenge was intentionally never persisted. The test's
+  // issue response was lost, so do not try to reconstruct/use it.
+  assert.equal(persisted.consumed_at_ms, null);
+
+  // Separately exercise consume's unknown response: it commits once, returns
+  // BLOCKED to the caller, and any replay sees the already-consumed state.
+  const second = setup();
+  const { result: issued } = await issue(second, { operation_id: "e".repeat(64) });
+  const consumeRequestValue = await consumeRequest(issued, { operation_id: "f".repeat(64) });
+  const consumeStore = createPairingAtomicStore(second.storage);
+  const consumeResult = await receiveDeviceAttestationChallenge({
+    request: consumeRequestValue, env: second.env, objectId: second.objectId,
+    store: {
+      async atomic(operation) {
+        await consumeStore.atomic(operation);
+        throw new Error("simulated lost consume response after commit");
+      },
+    },
+    cryptoImpl: webcrypto, clock: () => NOW,
+  });
+  assert.equal(consumeResult.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
+  assert.equal(second.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, NOW);
+  assert.equal((await second.run(consumeRequestValue)).code, "ATTESTATION_CHALLENGE_REPLAY");
+});
