@@ -122,6 +122,13 @@ function certificateExtensions(der) {
   }
   return result;
 }
+function keyUsageAllowsDigitalSignature(encoded) {
+  const bits=node(encoded); tag(bits,0,3,false);
+  if (bits.next!==encoded.length || bits.value.length<2 || bits.value[0]>7) return false;
+  const unused=bits.value[0], last=bits.value[bits.value.length-1];
+  if (unused && (last & ((1<<unused)-1))!==0) return false;
+  return (bits.value[1]&0x80)!==0;
+}
 function parseBasicConstraints(encoded) {
   const root=node(encoded); tag(root,0,16,true);
   if (root.next!==encoded.length) throw Error("BASIC_CONSTRAINTS_TRAILING");
@@ -261,7 +268,8 @@ function getChain(evidence, context, at) {
   const root=certs[certs.length-1], rootFp=fingerprints[fingerprints.length-1];
   if (!root.ca||!context.approvedRootFingerprints256.includes(rootFp)||!root.checkIssued(root)||!root.verify(root.publicKey)) throw Error("ATTESTATION_ROOT_NOT_PINNED");
   const key=certs[0].publicKey;
-  if (!Array.isArray(certs[0].keyUsage) || !certs[0].keyUsage.some(u=>/digitalSignature/iu.test(u))) throw Error("ATTESTATION_LEAF_KEY_USAGE");
+  const leafKeyUsage=extensions[0].get("2.5.29.15");
+  if (!leafKeyUsage || !keyUsageAllowsDigitalSignature(leafKeyUsage.value)) throw Error("ATTESTATION_LEAF_KEY_USAGE");
   if (key.asymmetricKeyType!=="ec"||key.asymmetricKeyDetails?.namedCurve!=="prime256v1") throw Error("ATTESTATION_LEAF_KEY_NOT_P256");
   return {certs,extensions,rootFingerprint256:rootFp};
 }
