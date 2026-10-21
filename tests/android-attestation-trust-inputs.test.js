@@ -167,8 +167,8 @@ test("loader rejects unknown status/reason and invalid calendar dates", async ()
 });
 
 test("non-200, redirect and mismatched source fail closed", async () => {
-  assert.equal((await loader({ fetchImpl: async () => response({}, { status: 503 }) }).load()).code, "HTTP_STATUS_BLOCKED");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { status: 302 }) }).load()).code, "REDIRECT_REJECTED");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { status: 503 }) }).load()).code, "HTTP_STATUS_BLOCKED");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { status: 302 }) }).load()).code, "REDIRECT_REJECTED");
   const wrongSource = async () => {
     const result = response();
     Object.defineProperty(result, "url", { value: "https://attacker.invalid/status" });
@@ -190,32 +190,32 @@ test("network failure blocks and an actual abort deadline is enforced", async ()
 });
 
 test("wrong content type, malformed JSON, and invalid UTF-8 fail closed", async () => {
-  assert.equal((await loader({ fetchImpl: async () => response({}, { contentType: "text/plain" }) }).load()).code, "CONTENT_TYPE_INVALID");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { rawBody: "{" }) }).load()).code, "STATUS_JSON_INVALID");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { rawBody: new Uint8Array([0xff]) }) }).load()).code, "STATUS_JSON_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { contentType: "text/plain" }) }).load()).code, "CONTENT_TYPE_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { rawBody: "{" }) }).load()).code, "STATUS_JSON_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { rawBody: new Uint8Array([0xff]) }) }).load()).code, "STATUS_JSON_INVALID");
 });
 
 test("body size is bounded using Content-Length and streamed bytes", async () => {
-  assert.equal((await loader({ fetchImpl: async () => response({}, { headers: { "content-length": String(constants.maxBodyBytes + 1) } }) }).load()).code,
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { headers: { "content-length": String(constants.maxBodyBytes + 1) } }) }).load()).code,
     "STATUS_BODY_TOO_LARGE");
   const tooLarge = " ".repeat(constants.maxBodyBytes + 1);
-  assert.equal((await loader({ fetchImpl: async () => response({}, { rawBody: tooLarge }) }).load()).code, "STATUS_BODY_TOO_LARGE");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { rawBody: tooLarge }) }).load()).code, "STATUS_BODY_TOO_LARGE");
 });
 
 test("Cache-Control max-age is mandatory, unique and bounded by six hours", async () => {
-  assert.equal((await loader({ fetchImpl: async () => response({}, { cacheControl: "public" }) }).load()).code, "CACHE_CONTROL_INVALID");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { cacheControl: "max-age=60, max-age=120" }) }).load()).code, "CACHE_CONTROL_INVALID");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { cacheControl: "no-store, max-age=3600" }) }).load()).code, "CACHE_CONTROL_INVALID");
-  const capped = await loader({ fetchImpl: async () => response({}, { cacheControl: "public, max-age=86400" }) }).load();
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "public" }) }).load()).code, "CACHE_CONTROL_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "max-age=60, max-age=120" }) }).load()).code, "CACHE_CONTROL_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "no-store, max-age=3600" }) }).load()).code, "CACHE_CONTROL_INVALID");
+  const capped = await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "public, max-age=86400" }) }).load();
   assert.equal(capped.revocationSnapshot.cacheMaxAgeMs, constants.maxFreshnessMs);
 });
 
 test("Age is subtracted from upstream TTL and too little remaining freshness blocks", async () => {
-  const aged = await loader({ fetchImpl: async () => response({}, { cacheControl: "max-age=3600", age: "300" }) }).load();
+  const aged = await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "max-age=3600", age: "300" }) }).load();
   assert.equal(aged.revocationSnapshot.cacheMaxAgeMs, 55 * 60 * 1000);
-  assert.equal((await loader({ fetchImpl: async () => response({}, { cacheControl: "max-age=60", age: "1" }) }).load()).code,
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { cacheControl: "max-age=60", age: "1" }) }).load()).code,
     "CACHE_NOT_FRESH_ENOUGH");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { age: "-1" }) }).load()).code, "AGE_HEADER_INVALID");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { age: "-1" }) }).load()).code, "AGE_HEADER_INVALID");
 });
 
 test("missing/future/stale server Date fails with clock uncertainty", async () => {
@@ -225,7 +225,7 @@ test("missing/future/stale server Date fails with clock uncertainty", async () =
     return new Response(await result.text(), { status: 200, headers });
   } }).load();
   assert.equal(missingDate.code, "CLOCK_UNCERTAIN");
-  assert.equal((await loader({ fetchImpl: async () => response({}, { date: new Date(NOW + 600_000).toUTCString() }) }).load()).code, "CLOCK_UNCERTAIN");
+  assert.equal((await loader({ fetchImpl: async () => response({ entries: {} }, { date: new Date(NOW + 600_000).toUTCString() }) }).load()).code, "CLOCK_UNCERTAIN");
 });
 
 test("cache is reused only until expiry; a failed refresh never serves stale data", async () => {
@@ -248,7 +248,7 @@ test("cache is reused only until expiry; a failed refresh never serves stale dat
 test("wall-clock rollback blocks cache success and refresh", async () => {
   const clock = { value: NOW };
   let calls = 0;
-  const instance = loader({ fetchImpl: async () => { calls++; return response({}, { now: clock.value }); }, nowRef: clock });
+  const instance = loader({ fetchImpl: async () => { calls++; return response({ entries: {} }, { now: clock.value }); }, nowRef: clock });
   assert.equal((await instance.load()).state, "REVOCATION_STATUS_AVAILABLE");
   clock.value -= 1;
   assert.equal((await instance.load()).code, "CLOCK_UNCERTAIN");
