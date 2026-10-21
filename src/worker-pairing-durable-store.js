@@ -157,8 +157,7 @@ export function createAndroidProofChallengeLifecycle({
   };
   // Keep expired/terminal rows for an additional bounded TTL so replay evidence
   // survives process restarts; never turn expired ISSUED/CLAIMED rows back to ISSUED.
-  const retain = (rows, now) => rows.filter(row => now < row.expires_at_ms + PROOF_CHALLENGE_TTL_MS ||
-    row.state === "ISSUED" || row.state === "CLAIMED");
+  const retain = (rows, now) => rows.filter(row => now < row.expires_at_ms + PROOF_CHALLENGE_TTL_MS);
 
   return Object.freeze({
     async issue({serverReference} = {}) {
@@ -241,33 +240,6 @@ export class BkeWorkerPairingVault {
   async issueAtomicPairingInvitation(request){return receiveAdminPairingInvitation({request,env:this.#env,objectId:this.#objectId,store:this.#store});}
   async reviewPairingConsent(command){return receiveAdminPairingConsent({command,env:this.#env,objectId:this.#objectId,store:this.#store});}
   async managePreparedDeviceProposal(command){return receivePreparedDeviceProposal({command,env:this.#env,objectId:this.#objectId,store:this.#store});}
-  async issueProofChallenge({serverReference} = {}) {
-    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
-        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
-    const lifecycle=createAndroidProofChallengeLifecycle({
-      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
-      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
-    });
-    return lifecycle.issue({serverReference});
-  }
-  async claimProofChallenge({challengeId,serverReference} = {}) {
-    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
-        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
-    const lifecycle=createAndroidProofChallengeLifecycle({
-      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
-      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
-    });
-    return lifecycle.claim({challengeId,serverReference});
-  }
-  async finalizeProofChallenge({challengeId,serverReference,outcome} = {}) {
-    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
-        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
-    const lifecycle=createAndroidProofChallengeLifecycle({
-      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
-      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
-    });
-    return lifecycle.finalize({challengeId,serverReference,outcome});
-  }
   async issueProofChallenge({serverReference} = {}) {
     if (this.#env?.BKE_PREPRODUCTION !== "true" ||
         this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
