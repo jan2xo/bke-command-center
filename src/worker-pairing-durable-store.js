@@ -3,6 +3,7 @@ import { receiveProtectedInactivePairing } from "./admin-protected-pairing-rpc.j
 import { receiveAdminPairingInvitation } from "./admin-invitation-rpc.js";
 import { receiveAdminPairingConsent } from "./admin-pairing-review-rpc.js";
 import { receivePreparedDeviceProposal } from "./admin-device-proposal-preparation.js";
+import { receiveDeviceAttestationChallenge } from "./admin-device-attestation-challenge-rpc.js";
 // Cloudflare Durable Object transaction adapter for inactive pairing identity.
 // GitHub remains the PR/task ledger. This only stores bounded enrollment state.
 // The adapter MUST run *inside* one installation-scoped SQLite-backed DO.
@@ -12,6 +13,8 @@ const KEY = Object.freeze({
   admin_actions: "bke:pairing:v1:admin_actions",
   consents: "bke:pairing:v1:consents",
   prepared: "bke:pairing:v1:prepared",
+  attestation_challenges: "bke:pairing:v1:attestation_challenges",
+  attestation_challenge_clock: "bke:pairing:v1:attestation_challenge_clock",
 });
 const MAX_ROWS = 100;
 const MAX_SERIALIZED_BYTES = 262_144;
@@ -117,6 +120,13 @@ export class BkeWorkerPairingVault {
   async managePreparedDeviceProposal(command) {
     return receivePreparedDeviceProposal({
       command, env:this.#env, objectId:this.#objectId, store:this.#store,
+    });
+  }
+
+  // Default-OFF server-only challenge/replay ledger. No HTTP route invokes this RPC.
+  async manageDeviceAttestationChallenge(request) {
+    return receiveDeviceAttestationChallenge({
+      request, env: this.#env, objectId: this.#objectId, store: this.#store,
     });
   }
 
