@@ -63,6 +63,12 @@ Critically, `src/admin-inactive-registration-audit.js` explicitly emits `session
 
 These are dependency seams, not proof that current-session authentication is available. A test callback, caller-supplied object, page message, or arbitrary “trusted” callback cannot fill the dependency.
 
+#### Cross-repository device-attestation dependency (not imported)
+
+[BKE Worker PR #144](https://github.com/jan2xo/bke-worker/pull/144) is currently **OPEN / DRAFT / UNMERGED** at `1524e57c54212fdcec8e30b7df73461729d6ac68`. Its source-only scope adds Android Keystore hardware-backed peer evidence and a fresh binding for the current GeckoSession/native-port, profile, bridge, and ChatGPT target. It explicitly states that server-side Android attestation-chain verification, trusted nonce issuance/replay storage, owner-pin provisioning/revocation, and physical supported-device acceptance are **blocked / not in that PR**. The source-side review is not live device trust or server authorization.
+
+Per the CC-G1-02 instruction not to import unmerged PR implementations, no code from Worker #144 is copied or referenced at runtime here. Once that PR is merged under its own gates, its device evidence may be a documented input contract for a *separate server verifier*; it cannot by itself resolve current session trust. The server still needs to validate chain/app identity, fresh single-use server challenge, owner-pinned key, exact binding, revocation/expiry and current session generation through a scoped authenticated path.
+
 ### Relay current connection — server-observed socket, but not bound to enrolled device/session facts
 
 Worker current-main `cloudflare-relay/src/index.js` uses a per-worker `WorkerSession` Durable Object and maintains `active_connection_id` plus a socket attachment containing `workerId`, server-generated `connectionId`, `registered`, and `sessionId`. The server-generated connection ID is useful transport state.
