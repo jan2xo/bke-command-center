@@ -110,16 +110,39 @@ function certificateExtensions(der) {
     const fields = children(ext,der);
     if (fields.length < 2 || fields.length > 3) throw Error("CERT_EXTENSION_SCHEMA");
     const name = oid(fields[0]), octet = fields[fields.length - 1];
+    let critical = false;
     if (fields.length === 3) {
       tag(fields[1],0,1,false);
       if (fields[1].value.length !== 1 || ![0,255].includes(fields[1].value[0])) throw Error("CERT_EXTENSION_BOOLEAN");
+      critical = fields[1].value[0] === 255;
     }
     tag(octet,0,4,false);
     if (result.has(name)) throw Error("CERT_DUPLICATE_EXTENSION");
-    result.set(name,Buffer.from(octet.value));
+    result.set(name,{value:Buffer.from(octet.value),critical});
   }
   return result;
 }
+function parseBasicConstraints(encoded) {
+  const root=node(encoded); tag(root,0,16,true);
+  if (root.next!==encoded.length) throw Error("BASIC_CONSTRAINTS_TRAILING");
+  const fields=children(root,encoded);
+  let offset=0, ca=false, pathLen=null;
+  if (fields[offset]?.tagClass===0&&fields[offset]?.tagNumber===1) {
+    tag(fields[offset],0,1,false);
+    if (fields[offset].value.length!==1||![0,255].includes(fields[offset].value[0])) throw Error("BASIC_CONSTRAINTS_BOOLEAN");
+    ca=fields[offset].value[0]===255; offset++;
+  }
+  if (fields[offset]) {
+    tag(fields[offset],0,2,false);
+    if (!fields[offset].value.length||(fields[offset].value[0]&128)||fields[offset].value.length>4) throw Error("BASIC_CONSTRAINTS_PATHLEN");
+    pathLen=0;
+    for (const b of fields[offset].value) pathLen=pathLen*256+b;
+    offset++;
+  }
+  if (offset!==fields.length||(!ca&&pathLen!==null)) throw Error("BASIC_CONSTRAINTS_SCHEMA");
+  return {ca,pathLen};
+}
+
 function parseAttestation(encoded) {
   const root = node(encoded); tag(root,0,16,true);
   if (root.next !== encoded.length) throw Error("ANDROID_ATTESTATION_TRAILING");
@@ -213,18 +236,33 @@ function getChain(evidence, context, at) {
   });
   const fingerprints=certs.map(c=>c.fingerprint256.replaceAll(":","").toLowerCase());
   if (new Set(fingerprints).size!==fingerprints.length) throw Error("ATTESTATION_CHAIN_DUPLICATE_CERTIFICATE");
+  const extensions=certs.map(cert=>certificateExtensions(cert.raw));
+  const understoodCritical=new Set(["2.5.29.15","2.5.29.19",EXT_OID]);
+  const constraints=extensions.map((items,index)=>{
+    for (const [extensionOid,entry] of items) {
+      if (entry.critical&&!understoodCritical.has(extensionOid)) throw Error("ATTESTATION_UNKNOWN_CRITICAL_EXTENSION");
+      if (extensionOid==="2.5.29.30") throw Error("ATTESTATION_NAME_CONSTRAINTS_UNSUPPORTED");
+    }
+    if (!items.has("2.5.29.19")) throw Error("ATTESTATION_BASIC_CONSTRAINTS_MISSING");
+    const parsed=parseBasicConstraints(items.get("2.5.29.19").value);
+    if (parsed.ca!==certs[index].ca) throw Error("ATTESTATION_BASIC_CONSTRAINTS_MISMATCH");
+    return parsed;
+  });
   for (let i=0;i<certs.length-1;i++) {
     const child=certs[i], issuer=certs[i+1];
     // The leaf must not be a CA; intermediates below the root must be CAs.
     if ((i===0&&child.ca)||(i>0&&!child.ca)||!issuer.ca||
         !child.checkIssued(issuer)||!child.verify(issuer.publicKey)) throw Error("ATTESTATION_CHAIN_SIGNATURE_INVALID");
     if (Array.isArray(issuer.keyUsage)&&issuer.keyUsage.length&&!issuer.keyUsage.some(u=>/keyCertSign|Certificate Sign/iu.test(u))) throw Error("ATTESTATION_ISSUER_KEY_USAGE");
+    const pathLen=constraints[i+1].pathLen;
+    const subordinateCas=certs.slice(0,i+1).filter(cert=>cert.ca).length;
+    if (pathLen!==null&&subordinateCas>pathLen) throw Error("ATTESTATION_PATH_LENGTH_EXCEEDED");
   }
   const root=certs[certs.length-1], rootFp=fingerprints[fingerprints.length-1];
   if (!root.ca||!context.approvedRootFingerprints256.includes(rootFp)||!root.checkIssued(root)||!root.verify(root.publicKey)) throw Error("ATTESTATION_ROOT_NOT_PINNED");
   const key=certs[0].publicKey;
   if (key.asymmetricKeyType!=="ec"||key.asymmetricKeyDetails?.namedCurve!=="prime256v1") throw Error("ATTESTATION_LEAF_KEY_NOT_P256");
-  return {certs,rootFingerprint256:rootFp};
+  return {certs,extensions,rootFingerprint256:rootFp};
 }
 function canonicalPayload(evidence,challenge) {
   const fields=[challenge,...["workerId","sessionId","profileId","bridgeId","targetOrigin"].map(k=>Buffer.from(evidence[k],"utf8"))];
@@ -267,9 +305,9 @@ export function verifyAndroidPeerAttestationEvidence({evidence,serverContext,clo
     if (!challenge||challenge.length!==32||!initial||initial.length!==32||!publicKeyDer||!signature) return blocked("ANDROID_EVIDENCE_ENCODING_INVALID");
     const chain=getChain(evidence,serverContext,at), leaf=chain.certs[0];
     if (!leaf.publicKey.export({type:"spki",format:"der"}).equals(publicKeyDer)) return blocked("ANDROID_PUBLIC_KEY_MISMATCH");
-    const extensions=certificateExtensions(leaf.raw);
-    if (!extensions.has(EXT_OID)) return blocked("ANDROID_KEY_ATTESTATION_EXTENSION_MISSING");
-    const attestation=parseAttestation(extensions.get(EXT_OID));
+    const leafExtensions=chain.extensions[0];
+    if (!leafExtensions.has(EXT_OID)) return blocked("ANDROID_KEY_ATTESTATION_EXTENSION_MISSING");
+    const attestation=parseAttestation(leafExtensions.get(EXT_OID).value);
     if (!attestation.challenge.equals(initial)||!attestation.challenge.equals(b64(serverContext.initialAttestationChallengeBase64Url,32))) {
       return blocked("ANDROID_INITIAL_CHALLENGE_MISMATCH");
     }
