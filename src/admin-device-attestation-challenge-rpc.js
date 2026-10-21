@@ -248,6 +248,7 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
       // back if its write crosses the signed command's expiry boundary.
       const afterWrite = nowMs(clock);
       if (afterWrite === null) throw new Error("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (afterWrite < now) throw new Error("ATTESTATION_CHALLENGE_CLOCK_ROLLBACK_DURING_WRITE");
       if (!validFreshCommand(request, afterWrite)) {
         throw new Error("ATTESTATION_CHALLENGE_COMMAND_EXPIRED_DURING_WRITE");
       }
@@ -346,6 +347,7 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
       // asynchronous write crossed either authorization boundary.
       const afterWrite = nowMs(clock);
       if (afterWrite === null) throw new Error("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (afterWrite < now) throw new Error("ATTESTATION_CHALLENGE_CLOCK_ROLLBACK_DURING_WRITE");
       if (!validFreshCommand(request, afterWrite)) {
         throw new Error("ATTESTATION_CHALLENGE_COMMAND_EXPIRED_DURING_WRITE");
       }
