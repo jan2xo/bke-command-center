@@ -68,7 +68,7 @@ try {
   assert.deepEqual(later.data, {
     state: "OBSERVED", a_paired_count: 4, b_paired_count: 0,
     pending_count: 1, admin_actions_count: 1, consent_count: 1,
-    prepared_count: 1,
+    prepared_count: 1, proof_challenge_count: 1,
   });
   const denied = await response("/unknown");
   assert.equal(denied.status, 404, "LOCAL_DO_UNKNOWN_PATH_NOT_DENIED");
