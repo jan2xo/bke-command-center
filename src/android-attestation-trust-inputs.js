@@ -304,7 +304,7 @@ export function createGoogleAttestationRevocationLoader({
         if (response.status !== 200) throw errorWithCode("HTTP_STATUS_BLOCKED");
         if (response.url && response.url !== GOOGLE_STATUS_URL) throw errorWithCode("STATUS_SOURCE_MISMATCH");
         const contentType = response.headers.get("content-type");
-        if (typeof contentType !== "string" || !/^application\\/json(?:\\s*;|\\s*$)/iu.test(contentType)) {
+        if (typeof contentType !== "string" || !/^application\/json(?:\s*;|\s*$)/iu.test(contentType)) {
           throw errorWithCode("CONTENT_TYPE_INVALID");
         }
         const payload = await readBoundedJson(response);
