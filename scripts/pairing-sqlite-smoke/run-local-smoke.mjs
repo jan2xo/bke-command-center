@@ -60,6 +60,7 @@ try {
       "installation_isolation", "sequential_sqlite_persistence",
       "five_key_commit", "five_key_rollback",
       "concurrent_transaction_serialization",
+      "proof_challenge_issue_claim_finalize",
     ],
   });
   const later = await response("/verify");
