@@ -651,6 +651,61 @@ function delayChallengeStorageWrite(api) {
   return { store, entered: hold.entered, release: hold.release };
 }
 
+
+test("issue rolls back if the clock moves backward during the durable write", async () => {
+  const api = setup();
+  let now = NOW;
+  const request = await signed("issue", {
+    operation_id: "9".repeat(64),
+    issued_at_ms: NOW - 100,
+    expires_at_ms: NOW + 10_000,
+  });
+  const delayed = delayChallengeStorageWrite(api);
+  const pending = invokeWith(api, request, {
+    store: delayed.store,
+    clock: () => now,
+  });
+  await delayed.entered;
+  // Still-valid request time, but earlier than the boundary that authorized it.
+  now = NOW - 50;
+  delayed.release();
+
+  const result = await pending;
+  assert.equal(result.code, "ATTESTATION_CHALLENGE_ISSUE_OUTCOME_UNCERTAIN");
+  assert.equal(api.storage.data.has(STORAGE_KEY), false);
+  assert.equal(api.storage.data.has(CLOCK_KEY), false);
+});
+
+test("consume rolls back if the clock moves backward during the durable write", async () => {
+  const api = setup();
+  const { result: issued } = await issue(api, {
+    operation_id: "a".repeat(64),
+    expires_at_ms: NOW + 10_000,
+  });
+  assert.equal(issued.state, "CHALLENGE_ISSUED");
+
+  let now = NOW + 1_000;
+  const request = await consumeRequest(issued, {
+    operation_id: "b".repeat(64),
+    issued_at_ms: NOW + 900,
+    expires_at_ms: NOW + 20_000,
+  });
+  const delayed = delayChallengeStorageWrite(api);
+  const pending = invokeWith(api, request, {
+    store: delayed.store,
+    clock: () => now,
+  });
+  await delayed.entered;
+  now = NOW + 950;
+  delayed.release();
+
+  const result = await pending;
+  assert.equal(result.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), [{ high_watermark_ms: NOW }],
+    "rollback must not commit the newer fence timestamp");
+});
+
 test("issue rolls back if the durable write crosses signed-command expiry", async () => {
   for (const offset of [0, 1]) {
     const api = setup();
