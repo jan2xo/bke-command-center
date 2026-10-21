@@ -211,3 +211,104 @@ test("queued transaction crossing expiry cannot claim or finalize",async()=>{
  assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
  assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
 });
+
+test("storage read stalled after transaction entry cannot claim after expiry",async()=>{
+ const d=new FakeDurableStorage();let now=2_000_000_000_000;
+ const api=createAndroidProofChallengeLifecycle({
+  store:createPairingAtomicStore(d),installationId:"123456",
+  resolveTrustedContext:async r=>r?.trusted?binding():null,
+  cryptoImpl:webcrypto,clock:()=>now
+ });
+ const issued=await api.issue({serverReference:trusted});
+ let releaseRead, markReadEntered;
+ const readGate=new Promise(resolve=>{releaseRead=resolve;});
+ const readEntered=new Promise(resolve=>{markReadEntered=resolve;});
+ const originalTransaction=d.transaction.bind(d);
+ let intercept=true;
+ d.transaction=fn=>originalTransaction(tx=>{
+  const wrapped={
+   get:async key=>{
+    if(intercept && key==="bke:proof-challenge:v1:rows"){
+     intercept=false;markReadEntered();await readGate;
+    }
+    return tx.get(key);
+   },
+   put:(key,value)=>tx.put(key,value)
+  };
+  return fn(wrapped);
+ });
+ const pending=api.claim({challengeId:issued.challengeId,serverReference:trusted});
+ await readEntered;
+ now=issued.expiresAtMs;
+ releaseRead();
+ assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
+});
+
+test("storage read stalled after transaction entry cannot finalize after expiry",async()=>{
+ const d=new FakeDurableStorage();let now=2_000_000_000_000;
+ const api=createAndroidProofChallengeLifecycle({
+  store:createPairingAtomicStore(d),installationId:"123456",
+  resolveTrustedContext:async r=>r?.trusted?binding():null,
+  cryptoImpl:webcrypto,clock:()=>now
+ });
+ const issued=await api.issue({serverReference:trusted});
+ assert.equal((await api.claim({challengeId:issued.challengeId,serverReference:trusted})).state,"CLAIMED");
+ let releaseRead, markReadEntered;
+ const readGate=new Promise(resolve=>{releaseRead=resolve;});
+ const readEntered=new Promise(resolve=>{markReadEntered=resolve;});
+ const originalTransaction=d.transaction.bind(d);
+ let intercept=true;
+ d.transaction=fn=>originalTransaction(tx=>{
+  const wrapped={
+   get:async key=>{
+    if(intercept && key==="bke:proof-challenge:v1:rows"){
+     intercept=false;markReadEntered();await readGate;
+    }
+    return tx.get(key);
+   },
+   put:(key,value)=>tx.put(key,value)
+  };
+  return fn(wrapped);
+ });
+ const pending=api.finalize({challengeId:issued.challengeId,serverReference:trusted,outcome:"CONSUMED"});
+ await readEntered;
+ now=issued.expiresAtMs;
+ releaseRead();
+ assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
+});
+
+test("issuance starts its TTL after a stalled storage read completes",async()=>{
+ const d=new FakeDurableStorage();let now=2_000_000_000_000;
+ const api=createAndroidProofChallengeLifecycle({
+  store:createPairingAtomicStore(d),installationId:"123456",
+  resolveTrustedContext:async r=>r?.trusted?binding():null,
+  cryptoImpl:webcrypto,clock:()=>now
+ });
+ let releaseRead, markReadEntered;
+ const readGate=new Promise(resolve=>{releaseRead=resolve;});
+ const readEntered=new Promise(resolve=>{markReadEntered=resolve;});
+ const originalTransaction=d.transaction.bind(d);
+ let intercept=true;
+ d.transaction=fn=>originalTransaction(tx=>{
+  const wrapped={
+   get:async key=>{
+    if(intercept && key==="bke:proof-challenge:v1:rows"){
+     intercept=false;markReadEntered();await readGate;
+    }
+    return tx.get(key);
+   },
+   put:(key,value)=>tx.put(key,value)
+  };
+  return fn(wrapped);
+ });
+ const pending=api.issue({serverReference:trusted});
+ await readEntered;
+ now+=75_000;
+ releaseRead();
+ const issued=await pending;
+ assert.equal(issued.state,"ISSUED");
+ assert.equal(issued.issuedAtMs,now);
+ assert.equal(issued.expiresAtMs,now+120_000);
+});
