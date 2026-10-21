@@ -113,3 +113,75 @@ test("state persists across reconstructed lifecycle client and installation is i
  const isolated=lifecycle(new FakeDurableStorage(),binding("654321","worker-a","a"));
  assert.deepEqual(await isolated.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_MISSING_OR_USED"});
 });
+
+
+test("expiry is rechecked after stalled trusted-context resolution before claim mutation",async()=>{
+ const d=new FakeDurableStorage();
+ let now=2_000_000_000_000;
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ let stalled=false;
+ const api=createAndroidProofChallengeLifecycle({
+   store:createPairingAtomicStore(d),installationId:"123456",
+   resolveTrustedContext:async reference=>{
+     if(reference?.stall===true){stalled=true;await gate;}
+     return reference?.trusted===true?binding():null;
+   },
+   cryptoImpl:webcrypto,clock:()=>now
+ });
+ const issued=await api.issue({serverReference:trusted});
+ const pending=api.claim({challengeId:issued.challengeId,serverReference:{trusted:true,stall:true}});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(stalled,true);
+ now=issued.expiresAtMs;
+ release();
+ assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
+});
+
+test("expiry is rechecked after stalled trusted-context resolution before terminal finalize",async()=>{
+ const d=new FakeDurableStorage();
+ let now=2_000_000_000_000;
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ let stalled=false;
+ const api=createAndroidProofChallengeLifecycle({
+   store:createPairingAtomicStore(d),installationId:"123456",
+   resolveTrustedContext:async reference=>{
+     if(reference?.stall===true){stalled=true;await gate;}
+     return reference?.trusted===true?binding():null;
+   },
+   cryptoImpl:webcrypto,clock:()=>now
+ });
+ const issued=await api.issue({serverReference:trusted});
+ assert.equal((await api.claim({challengeId:issued.challengeId,serverReference:trusted})).state,"CLAIMED");
+ const pending=api.finalize({challengeId:issued.challengeId,serverReference:{trusted:true,stall:true},outcome:"CONSUMED"});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(stalled,true);
+ now=issued.expiresAtMs;
+ release();
+ assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
+});
+
+test("enabled vault with missing resolver and wrong Durable Object identity return typed BLOCKED",async()=>{
+ const storage=new FakeDurableStorage();
+ const idFromName=name=>({toString:()=>name==="installation:123456"?"right-object":"wrong-object"});
+ const baseEnv={
+  BKE_PREPRODUCTION:"true",BKE_ANDROID_PROOF_CHALLENGE_ENABLED:"true",
+  BKE_PAIRING_INSTALLATION_ID:"123456",
+  BKE_WORKER_PAIRING_VAULT:{idFromName},
+ };
+ const noResolver=new BkeWorkerPairingVault({storage,id:{toString:()=>"right-object"}},baseEnv);
+ assert.deepEqual(await noResolver.issueProofChallenge({serverReference:trusted}),
+  {state:"BLOCKED",code:"PROOF_CHALLENGE_TRUST_CONTEXT_UNAVAILABLE"});
+ const resolver=async reference=>reference?.trusted===true?binding():null;
+ const validEnv={...baseEnv,BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER:resolver};
+ const wrongObject=new BkeWorkerPairingVault({storage,id:{toString:()=>"wrong-object"}},validEnv);
+ assert.deepEqual(await wrongObject.issueProofChallenge({serverReference:trusted}),
+  {state:"BLOCKED",code:"PROOF_CHALLENGE_OBJECT_MISMATCH"});
+ assert.deepEqual(await wrongObject.claimProofChallenge({challengeId:"a",serverReference:trusted}),
+  {state:"BLOCKED",code:"PROOF_CHALLENGE_OBJECT_MISMATCH"});
+ assert.deepEqual(await wrongObject.finalizeProofChallenge({challengeId:"a",serverReference:trusted,outcome:"CONSUMED"}),
+  {state:"BLOCKED",code:"PROOF_CHALLENGE_OBJECT_MISMATCH"});
+});
