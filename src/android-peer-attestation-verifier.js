@@ -158,6 +158,39 @@ function parseBasicConstraints(encoded) {
   return {ca,pathLen};
 }
 
+function parseAuthorizationList(auth, encoded) {
+  tag(auth,0,16,true);
+  const known=new Map();
+  for (const item of children(auth,encoded)) {
+    if (item.tagClass!==2) throw Error("ANDROID_AUTHORIZATION_TAG_CLASS");
+    if (known.has(item.tagNumber)) throw Error("ANDROID_AUTHORIZATION_DUPLICATE_TAG");
+    known.set(item.tagNumber,item);
+  }
+  return known;
+}
+function parseRootOfTrust(item, encoded, attestationVersion) {
+  if (!item.constructed) throw Error("ANDROID_ROOT_OF_TRUST_TAG");
+  const wrapped=children(item,encoded);
+  if (wrapped.length!==1) throw Error("ANDROID_ROOT_OF_TRUST_TAG");
+  const inner=wrapped[0]; tag(inner,0,16,true);
+  const fields=children(inner,encoded);
+  const expected=attestationVersion>=3?4:3;
+  if (fields.length!==expected) throw Error("ANDROID_ROOT_OF_TRUST_SCHEMA");
+  tag(fields[0],0,4,false);
+  tag(fields[1],0,1,false);
+  tag(fields[2],0,10,false);
+  if (fields[0].value.length===0 || fields[1].value.length!==1 ||
+      ![0,255].includes(fields[1].value[0]) || fields[2].value.length!==1) {
+    throw Error("ANDROID_ROOT_OF_TRUST_ENCODING");
+  }
+  if (expected===4) tag(fields[3],0,4,false);
+  return {
+    verifiedBootKey:Buffer.from(fields[0].value),
+    deviceLocked:fields[1].value[0]===255,
+    verifiedBootState:fields[2].value[0],
+    verifiedBootHash:expected===4?Buffer.from(fields[3].value):null,
+  };
+}
 function parseAttestation(encoded) {
   const root = node(encoded); tag(root,0,16,true);
   if (root.next !== encoded.length) throw Error("ANDROID_ATTESTATION_TRAILING");
@@ -165,20 +198,31 @@ function parseAttestation(encoded) {
   if (f.length !== 8) throw Error("ANDROID_ATTESTATION_SCHEMA");
   tag(f[0],0,2,false); tag(f[1],0,10,false); tag(f[2],0,2,false); tag(f[3],0,10,false);
   tag(f[4],0,4,false); tag(f[5],0,4,false); tag(f[6],0,16,true); tag(f[7],0,16,true);
+  if (!f[0].value.length || (f[0].value[0]&0x80) || f[0].value.length>4 ||
+      !f[2].value.length || (f[2].value[0]&0x80) || f[2].value.length>4) throw Error("ANDROID_ATTESTATION_VERSION");
+  const attestationVersion=f[0].value.reduce((n,b)=>n*256+b,0);
   const attestationLevel = f[1].value.length === 1 ? f[1].value[0] : -1;
   const keyLevel = f[3].value.length === 1 ? f[3].value[0] : -1;
   if (![1,2].includes(attestationLevel) || ![1,2].includes(keyLevel) || attestationLevel !== keyLevel) throw Error("ANDROID_KEY_NOT_HARDWARE_ATTESTED");
-  const appIds = [];
-  for (const auth of [f[6],f[7]]) for (const item of children(auth,encoded)) {
-    if (item.tagClass === 2 && item.tagNumber === 709) {
-      if (!item.constructed) throw Error("ANDROID_APP_ID_TAG");
-      const inner = children(item,encoded);
-      if (inner.length !== 1) throw Error("ANDROID_APP_ID_TAG");
-      tag(inner[0],0,4,false); appIds.push(Buffer.from(inner[0].value));
-    }
+  const software=parseAuthorizationList(f[6],encoded);
+  const hardware=parseAuthorizationList(f[7],encoded);
+  // RootOfTrust is a hardware-backed Keymaster authorization; ignore any untrusted software copy.
+  const rootItems=[];
+  if (software.has(704)) rootItems.push({source:"software",item:software.get(704)});
+  if (hardware.has(704)) rootItems.push({source:"hardware",item:hardware.get(704)});
+  if (rootItems.length!==1 || rootItems[0].source!=="hardware") throw Error("ANDROID_ROOT_OF_TRUST_NOT_HARDWARE_ENFORCED");
+  const rootOfTrust=parseRootOfTrust(rootItems[0].item,encoded,attestationVersion);
+  if (rootOfTrust.deviceLocked!==true || rootOfTrust.verifiedBootState!==0) throw Error("ANDROID_DEVICE_BOOT_STATE_UNTRUSTED");
+  const appIds=[];
+  for (const auth of [software,hardware]) if (auth.has(709)) {
+    const item=auth.get(709);
+    if (!item.constructed) throw Error("ANDROID_APP_ID_TAG");
+    const inner=children(item,encoded);
+    if (inner.length!==1) throw Error("ANDROID_APP_ID_TAG");
+    tag(inner[0],0,4,false); appIds.push({source:auth===software?"software":"hardware",value:Buffer.from(inner[0].value)});
   }
-  if (appIds.length !== 1) throw Error("ANDROID_APP_ID_MISSING_OR_DUPLICATE");
-  return {challenge:Buffer.from(f[4].value),attestationLevel,keyLevel,applicationId:appIds[0]};
+  if (appIds.length!==1 || appIds[0].source!=="software") throw Error("ANDROID_APP_ID_MISSING_OR_NOT_SOFTWARE_ENFORCED");
+  return {challenge:Buffer.from(f[4].value),attestationVersion,attestationLevel,keyLevel,applicationId:appIds[0].value,rootOfTrust};
 }
 function parseAppId(encoded) {
   const root = node(encoded); tag(root,0,16,true);
