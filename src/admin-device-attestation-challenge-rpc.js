@@ -156,6 +156,16 @@ function validLedger(rows) {
   return true;
 }
 
+function validClockFence(value) {
+  // This is one bounded per-installation row, not an unbounded tombstone list.
+  return value === undefined ||
+    (Array.isArray(value) && value.length === 1 &&
+      exact(value[0], "high_watermark_ms") &&
+      Number.isSafeInteger(value[0].high_watermark_ms) &&
+      value[0].high_watermark_ms > 0 &&
+      value[0].high_watermark_ms < Number.MAX_SAFE_INTEGER - MAX_TTL_MS);
+}
+
 async function sha256Hex(value, cryptoImpl) {
   return hex(new Uint8Array(await cryptoImpl.subtle.digest("SHA-256", enc(value))));
 }
@@ -193,6 +203,8 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
 
   try {
     return await store.atomic(async tx => {
+      const clockFence = await tx.get("attestation_challenge_clock");
+      if (!validClockFence(clockFence)) throw new Error("CLOCK_FENCE_INVALID");
       const current = (await tx.get("attestation_challenges")) || [];
       if (!validLedger(current)) throw new Error("STORAGE_SHAPE_INVALID");
       // Authoritative time is sampled only after HMAC verification, digesting,
@@ -201,6 +213,14 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
       const now = nowMs(clock);
       if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
       if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
+      const previousHighWatermark = clockFence?.[0]?.high_watermark_ms;
+      if (previousHighWatermark !== undefined && now < previousHighWatermark) {
+        return block("ATTESTATION_CHALLENGE_CLOCK_ROLLBACK");
+      }
+      // Persist this exact boundary timestamp atomically before pruning rows.
+      if (previousHighWatermark === undefined || now > previousHighWatermark) {
+        await tx.put("attestation_challenge_clock", [{ high_watermark_ms: now }]);
+      }
       const live = current.filter(row => row.expires_at_ms > now);
       if (live.some(row => row.issue_operation_id === request.operation_id ||
           row.consume_operation_id === request.operation_id)) {
@@ -278,6 +298,8 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
 
   try {
     return await store.atomic(async tx => {
+      const clockFence = await tx.get("attestation_challenge_clock");
+      if (!validClockFence(clockFence)) throw new Error("CLOCK_FENCE_INVALID");
       const rows = (await tx.get("attestation_challenges")) || [];
       if (!validLedger(rows)) throw new Error("STORAGE_SHAPE_INVALID");
       // Do not authorize from the preflight timestamp: HMAC verification,
@@ -285,6 +307,14 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
       const now = nowMs(clock);
       if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
       if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
+      const previousHighWatermark = clockFence?.[0]?.high_watermark_ms;
+      if (previousHighWatermark !== undefined && now < previousHighWatermark) {
+        return block("ATTESTATION_CHALLENGE_CLOCK_ROLLBACK");
+      }
+      // The issue and consume actions share one monotonic per-installation fence.
+      if (previousHighWatermark === undefined || now > previousHighWatermark) {
+        await tx.put("attestation_challenge_clock", [{ high_watermark_ms: now }]);
+      }
       const row = rows.find(candidate => candidate.challenge_id === request.challenge_id);
       if (!row) return block("ATTESTATION_CHALLENGE_UNKNOWN");
       if (row.installation_id !== request.installation_id ||
