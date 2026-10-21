@@ -202,7 +202,6 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
       if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
       if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
       const live = current.filter(row => row.expires_at_ms > now);
-      if (live.length !== current.length) await tx.put("attestation_challenges", live);
       if (live.some(row => row.issue_operation_id === request.operation_id ||
           row.consume_operation_id === request.operation_id)) {
         return block("ATTESTATION_CHALLENGE_ISSUE_REPLAY");
@@ -225,6 +224,13 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
         consume_operation_id: null,
       };
       await tx.put("attestation_challenges", [...live, row]);
+      // Durable storage writes are asynchronous too. The transaction must roll
+      // back if its write crosses the signed command's expiry boundary.
+      const afterWrite = nowMs(clock);
+      if (afterWrite === null) throw new Error("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (!validFreshCommand(request, afterWrite)) {
+        throw new Error("ATTESTATION_CHALLENGE_COMMAND_EXPIRED_DURING_WRITE");
+      }
       // The plaintext challenge is returned once over the named private RPC;
       // only its digest is retained in durable storage.
       return Object.freeze({
@@ -306,6 +312,16 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
         ? { ...candidate, consumed_at_ms: now, consume_operation_id: request.operation_id }
         : candidate);
       await tx.put("attestation_challenges", next);
+      // The transaction has not returned yet, so it can still roll back if the
+      // asynchronous write crossed either authorization boundary.
+      const afterWrite = nowMs(clock);
+      if (afterWrite === null) throw new Error("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (!validFreshCommand(request, afterWrite)) {
+        throw new Error("ATTESTATION_CHALLENGE_COMMAND_EXPIRED_DURING_WRITE");
+      }
+      if (afterWrite < row.issued_at_ms || row.expires_at_ms <= afterWrite) {
+        throw new Error("ATTESTATION_CHALLENGE_EXPIRED_DURING_WRITE");
+      }
       // Consumption proves only single-use nonce lifecycle, never device trust.
       return Object.freeze({
         state: "CHALLENGE_CONSUMED",
