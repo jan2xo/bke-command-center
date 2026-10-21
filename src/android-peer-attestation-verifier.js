@@ -129,6 +129,14 @@ function keyUsageAllowsDigitalSignature(encoded) {
   if (unused && (last & ((1<<unused)-1))!==0) return false;
   return (bits.value[1]&0x80)!==0;
 }
+function keyUsageAllowsKeyCertSign(encoded) {
+  const bits=node(encoded); tag(bits,0,3,false);
+  if (bits.next!==encoded.length || bits.value.length<2 || bits.value[0]>7) return false;
+  const unused=bits.value[0], last=bits.value[bits.value.length-1];
+  if (unused && (last & ((1<<unused)-1))!==0) return false;
+  // X.509 KeyUsage bit 5 (keyCertSign) is the third MSB of the first data octet.
+  return (bits.value[1]&0x04)!==0;
+}
 function parseBasicConstraints(encoded) {
   const root=node(encoded); tag(root,0,16,true);
   if (root.next!==encoded.length) throw Error("BASIC_CONSTRAINTS_TRAILING");
@@ -260,7 +268,9 @@ function getChain(evidence, context, at) {
     // The leaf must not be a CA; intermediates below the root must be CAs.
     if ((i===0&&child.ca)||(i>0&&!child.ca)||!issuer.ca||
         !child.checkIssued(issuer)||!child.verify(issuer.publicKey)) throw Error("ATTESTATION_CHAIN_SIGNATURE_INVALID");
-    if (Array.isArray(issuer.keyUsage)&&issuer.keyUsage.length&&!issuer.keyUsage.some(u=>/keyCertSign|Certificate Sign/iu.test(u))) throw Error("ATTESTATION_ISSUER_KEY_USAGE");
+    const issuerKeyUsage=extensions[i+1].get("2.5.29.15");
+    // Require an explicit X.509 KeyUsage/keyCertSign assertion on each issuer.
+    if (!issuerKeyUsage || !keyUsageAllowsKeyCertSign(issuerKeyUsage.value)) throw Error("ATTESTATION_ISSUER_KEY_USAGE");
     const pathLen=constraints[i+1].pathLen;
     const subordinateCas=certs.slice(0,i+1).filter(cert=>cert.ca).length;
     if (pathLen!==null&&subordinateCas>pathLen) throw Error("ATTESTATION_PATH_LENGTH_EXCEEDED");
