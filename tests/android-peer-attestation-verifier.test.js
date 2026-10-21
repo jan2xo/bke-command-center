@@ -30,7 +30,7 @@ const integer=(n)=>tlv(0x02,Buffer.from([n]));
 const enumerated=(n)=>tlv(0x0a,Buffer.from([n]));
 const octet=(b)=>tlv(0x04,b);
 
-function rootOfTrust({locked=true,bootState=0,placement="hardware"}={}) {
+function rootOfTrust({locked=true,bootState=0}={}) {
   const body=seq(octet(Buffer.alloc(32,0x77)),tlv(0x01,Buffer.from([locked?0xff:0x00])),enumerated(bootState),octet(Buffer.alloc(32,0x66)));
   const tag704=highTag([0xbf,0x85,0x40],body);
   return tag704;
@@ -69,7 +69,7 @@ function makeCertFixture(options={}) {
   writeFileSync(intermediateConfig,
     "[intermediate]\n"+
     "basicConstraints=critical,CA:TRUE,pathlen:0\n"+
-    "keyUsage=critical,keyCertSign,cRLSign\n"+
+    (options.omitIssuerKeyCertSign ? "keyUsage=critical,cRLSign\n" : "keyUsage=critical,keyCertSign,cRLSign\n")+
     "subjectKeyIdentifier=hash\n"+
     "authorityKeyIdentifier=keyid,issuer\n");
   run(["x509","-req","-in",intermediateCsr,"-CA",rootPem,"-CAkey",rootKey,"-set_serial","10",
