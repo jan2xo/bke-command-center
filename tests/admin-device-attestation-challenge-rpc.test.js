@@ -267,3 +267,27 @@ test("storage failures and a full live ledger return blocked states without gran
     "ATTESTATION_CHALLENGE_LEDGER_FULL");
   assert.equal(fullStorage.data.get(STORAGE_KEY).length, 100);
 });
+
+
+test("corrupt duplicate ledger rows and out-of-range consumed timestamps fail closed", async () => {
+  const seeded = new FakeDurableStorage();
+  const api = setup({ storage: seeded });
+  const { result: issued } = await issue(api);
+  const existing = seeded.data.get(STORAGE_KEY)[0];
+
+  // Duplicate IDs/issue operation IDs must not be interpreted heuristically.
+  seeded.data.set(STORAGE_KEY, [structuredClone(existing), structuredClone(existing)]);
+  const dupConsume = await api.run(await consumeRequest(issued, { operation_id: "d".repeat(64) }));
+  assert.equal(dupConsume.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
+  assert.equal(seeded.data.get(STORAGE_KEY).length, 2);
+
+  // Restore one row, then tamper with its durable state to a time impossible
+  // for this server-owned protocol. Reads must fail closed before mutation.
+  seeded.data.set(STORAGE_KEY, [{
+    ...existing,
+    consumed_at_ms: existing.expires_at_ms + 1,
+    consume_operation_id: "e".repeat(64),
+  }]);
+  const invalidConsume = await api.run(await consumeRequest(issued, { operation_id: "f".repeat(64) }));
+  assert.equal(invalidConsume.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
+});
