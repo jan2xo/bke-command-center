@@ -25,7 +25,7 @@ const binding=(installationId="123456",workerId="worker-a",s="a")=>({
 function lifecycle(storage,ctx=binding(),now=2_000_000_000_000) {
  return createAndroidProofChallengeLifecycle({
    store:createPairingAtomicStore(storage),installationId:ctx.installation_id,
-   resolveTrustedContext:async reference=>reference?.trusted===true?structuredClone(ctx):null,
+   resolveTrustedContext:async reference=>reference?.trusted===true?structuredClone(reference.overrideContext||ctx):null,
    cryptoImpl:webcrypto,clock:()=>now
  });
 }
@@ -34,7 +34,7 @@ const trusted={trusted:true};
 test("proof challenge lifecycle uses a scoped namespace and atomically commits one-use state",async()=>{
  const d=new FakeDurableStorage(),api=lifecycle(d);
  const issued=await api.issue({serverReference:trusted});
- assert.equal(issued.state,"ISSUED"); assert.equal(issued.expiresAtMs-issued.issuedAtMs,undefined); // no issue timestamp disclosure
+ assert.equal(issued.state,"ISSUED"); assert.equal(issued.expiresAtMs,2_000_000_120_000); // bounded 120-second TTL from injected clock
  assert.match(issued.challengeId,/^[a-f0-9]{64}$/u);
  assert.deepEqual([...d.data.keys()],["bke:proof-challenge:v1:rows"]);
  const claimed=await api.claim({challengeId:issued.challengeId,serverReference:trusted});
@@ -78,7 +78,7 @@ test("expiry is terminal rejection; backwards clock cannot revive issue",async()
  const api=createAndroidProofChallengeLifecycle({store:createPairingAtomicStore(d),installationId:"123456",resolveTrustedContext:async r=>r?.trusted?binding():null,cryptoImpl:webcrypto,clock:()=>now});
  const issued=await api.issue({serverReference:trusted}); now=issued.expiresAtMs;
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
- assert.equal((await api.inspectForTest(issued.challengeId)).state,"REJECTED");
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
  now=issued.issuedAtMs;
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_NOT_ISSUED"});
 });
@@ -90,15 +90,16 @@ test("storage commit uncertainty returns BLOCKED and never exposes a challenge",
  assert.equal(d.data.has("bke:proof-challenge:v1:rows"),false);
  const issued=await api.issue({serverReference:trusted}); d.failCommit=true;
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_STORAGE_UNAVAILABLE"});
- assert.equal((await api.inspectForTest(issued.challengeId)).state,"ISSUED");
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"ISSUED");
 });
 
 test("vault HTTP fetch remains 404 and has no public lifecycle methods",async()=>{
  const d=new FakeDurableStorage(),vault=new BkeWorkerPairingVault({storage:d,id:{toString:()=>"installation:123456"}},{});
  assert.equal((await vault.fetch(new Request("https://example.invalid/proof-challenge"))).status,404);
- assert.equal(typeof vault.issueProofChallenge,"undefined");
- assert.equal(typeof vault.claimProofChallenge,"undefined");
- assert.equal(typeof vault.finalizeProofChallenge,"undefined");
+ assert.equal(typeof vault.issueProofChallenge,"function");
+ assert.equal(typeof vault.claimProofChallenge,"function");
+ assert.equal(typeof vault.finalizeProofChallenge,"function");
+ assert.deepEqual(await vault.issueProofChallenge({serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_LOCKED"});
  assert.equal(d.transactions,0);
 });
 
