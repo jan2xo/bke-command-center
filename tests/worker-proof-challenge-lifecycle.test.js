@@ -43,7 +43,7 @@ test("proof challenge lifecycle uses a scoped namespace and atomically commits o
  assert.deepEqual(Object.keys(claimed.proofChallenge).sort(),["challengeBase64Url","expiresAtMs","issuedAtMs","state","workerId"]);
  assert.deepEqual(await api.finalize({challengeId:issued.challengeId,serverReference:trusted,outcome:"CONSUMED"}),{state:"CONSUMED"});
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_NOT_ISSUED"});
- assert.equal((await api.inspectForTest(issued.challengeId)).state,"CONSUMED");
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"CONSUMED");
 });
 
 test("two simultaneous claims against two lifecycle clients yield exactly one winner",async()=>{
@@ -58,11 +58,11 @@ test("two simultaneous claims against two lifecycle clients yield exactly one wi
 test("binding mismatches cannot claim or finalize someone else's challenge",async()=>{
  const d=new FakeDurableStorage(),a=lifecycle(d),other=lifecycle(d,binding("123456","worker-b","z"));
  const issued=await a.issue({serverReference:trusted});
- assert.deepEqual(await other.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
- assert.equal((await a.inspectForTest(issued.challengeId)).state,"ISSUED");
+ assert.deepEqual(await other.claim({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")}}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"ISSUED");
  const claim=await a.claim({challengeId:issued.challengeId,serverReference:trusted}); assert.equal(claim.state,"CLAIMED");
- assert.deepEqual(await other.finalize({challengeId:issued.challengeId,serverReference:trusted,outcome:"CONSUMED"}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
- assert.equal((await a.inspectForTest(issued.challengeId)).state,"CLAIMED");
+ assert.deepEqual(await other.finalize({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")},outcome:"CONSUMED"}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"CLAIMED");
 });
 
 test("untrusted server context, malformed id, unsupported terminal state fail closed",async()=>{
@@ -79,7 +79,7 @@ test("expiry is terminal rejection; backwards clock cannot revive issue",async()
  const issued=await api.issue({serverReference:trusted}); now=issued.expiresAtMs;
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
  assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
- now=issued.issuedAtMs;
+ now=issued.issuedAtMs+1;
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_NOT_ISSUED"});
 });
 
