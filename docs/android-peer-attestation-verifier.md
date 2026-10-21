@@ -9,7 +9,9 @@ Parent: [Command Center #30](https://github.com/jan2xo/bke-command-center/issues
 The verifier checks:
 - Exact v1 evidence schema, 32-byte canonical base64url challenges, UUID / worker shape and exact ChatGPT target origin.
 - The complete leaf-first attestation certificate chain, validity window, issuer linkage, signatures, CA roles and configured root fingerprint; the leaf key must be EC P-256 and match the public key in the payload.
-- The Android key-attestation extension OID `1.3.6.1.4.1.11129.2.1.17`, TEE or StrongBox security levels, and the key's embedded original challenge against the server-side enrollment record.
+- The Android key-attestation extension OID `1.3.6.1.4.1.11129.2.1.17`, matching TEE or StrongBox security levels, and the key's embedded original challenge against the server-side enrollment record.
+- A unique hardware-enforced `rootOfTrust [704]` record requiring `deviceLocked=true` and `verifiedBootState=Verified (0)`; absent, software-only, conflicting/duplicate, unlocked, self-signed, unverified, or failed boot records fail closed. `attestationApplicationId [709]` must be unique and software-enforced, and is accepted as a trusted app identity only alongside that hardware boot-state evidence.
+- The X.509 DER KeyUsage BIT STRING directly: leaf must include `digitalSignature`; each supplied issuer must include `keyCertSign`. Node's `X509Certificate.keyUsage` (Extended Key Usage) is not used for these checks.
 - The attested Android application package name and app-signing certificate SHA-256 digest against server-owned pins.
 - Every certificate serial against a fresh revocation snapshot and the signature over the exact length-prefixed protocol-v1 payload (version, proof challenge, worker ID, session ID, profile ID, bridge ID, target origin).
 
@@ -30,6 +32,6 @@ No public HTTP/WebSocket route imports this module. No Worker or Command Center 
 
 ## Certification
 
-The Node tests create a temporary ECDSA root and Android-attestation-shaped certificate chain with OpenSSL, then exercise valid signatures and negative cases for unpinned roots, wrong worker/profile/target, mismatch of proof or original enrollment challenge, incorrect app signer, altered proof signatures, stale revocation data, revoked certificates, software-level attestation, unclaimed/expired proof challenges and malformed chain input.
+The Node tests create a temporary ECDSA root and Android-attestation-shaped certificate chain with OpenSSL, then exercise valid signatures and negative cases for unpinned roots, wrong worker/profile/target, mismatch of proof or original enrollment challenge, incorrect app signer, altered proof signatures, stale revocation data, revoked certificates, software-level attestation, missing/software-only/duplicate rootOfTrust, unlocked boot, non-Verified boot states, issuer without keyCertSign, unclaimed/expired proof challenges and malformed chain input.
 
 These fixtures prove the verifier's deterministic cryptographic and policy behavior against generated certificates; they **do not** establish trust in an actual Google production attestation root, physical Android hardware, the deployed APK signer, an authenticated GeckoView native channel, or the live Cloudflare caller. Android's published verifier guidance requires a validated root chain, hardware-backed attestation security level and revocation checking before trusting the key. See the [Android key-attestation guidance](https://developer.android.com/privacy-and-security/security-key-attestation) and [ASN.1 attestation schema](https://source.android.com/docs/security/features/keystore/attestation).
