@@ -182,20 +182,22 @@ export function createAndroidProofChallengeLifecycle({
       try { nonce=randomNonce(cryptoImpl); id=randomId(cryptoImpl); }
       catch { return block("PROOF_CHALLENGE_RANDOM_UNAVAILABLE"); }
       const {context}=auth;
-      const timestamp=transitionNow();
-      if(timestamp.error) return block(timestamp.error);
-      const now=timestamp.now;
-      const row = {
-        challenge_id:id,challenge_base64url:nonce,
-        installation_id:context.installation_id,worker_id:context.worker_id,
-        session_sha256:context.session_sha256,profile_sha256:context.profile_sha256,
-        bridge_sha256:context.bridge_sha256,target_sha256:context.target_sha256,
-        audience:PROOF_AUDIENCE,purpose:PROOF_PURPOSE,
-        issued_at_ms:now,expires_at_ms:now+PROOF_CHALLENGE_TTL_MS,
-        state:"ISSUED",claimed_at_ms:null,terminal_at_ms:null,
-      };
       return atomic(async tx => {
         const rows=await rowsFrom(tx);
+        // Issue time is sampled after the async read and while holding the serialized
+        // transaction; a queued/stalled write must not commit an already-expired challenge.
+        const timestamp=transitionNow();
+        if(timestamp.error) return block(timestamp.error);
+        const now=timestamp.now;
+        const row = {
+          challenge_id:id,challenge_base64url:nonce,
+          installation_id:context.installation_id,worker_id:context.worker_id,
+          session_sha256:context.session_sha256,profile_sha256:context.profile_sha256,
+          bridge_sha256:context.bridge_sha256,target_sha256:context.target_sha256,
+          audience:PROOF_AUDIENCE,purpose:PROOF_PURPOSE,
+          issued_at_ms:now,expires_at_ms:now+PROOF_CHALLENGE_TTL_MS,
+          state:"ISSUED",claimed_at_ms:null,terminal_at_ms:null,
+        };
         if (rows.some(r=>r.challenge_id===id || r.challenge_base64url===nonce)) return block("PROOF_CHALLENGE_COLLISION");
         const kept=retain(rows,now);
         if (kept.length>=MAX_ROWS) return block("PROOF_CHALLENGE_CAPACITY");
@@ -211,8 +213,10 @@ export function createAndroidProofChallengeLifecycle({
       if (auth.error) return block(auth.error);
       const {context}=auth;
       return atomic(async tx=>{
+        const rows=await rowsFrom(tx);
+        // Clock read follows the awaited storage read and is authoritative for this transition.
         const stamp=transitionNow(); if(stamp.error) return block(stamp.error); const now=stamp.now;
-        const rows=await rowsFrom(tx),matches=rows.filter(r=>r.challenge_id===challengeId);
+        const matches=rows.filter(r=>r.challenge_id===challengeId);
         if (matches.length!==1) return block("PROOF_CHALLENGE_MISSING_OR_USED");
         const row=matches[0];
         if (!sameBinding(row,context)) return block("PROOF_CHALLENGE_BINDING_MISMATCH");
@@ -236,8 +240,10 @@ export function createAndroidProofChallengeLifecycle({
       if (auth.error) return block(auth.error);
       const {context}=auth;
       return atomic(async tx=>{
+        const rows=await rowsFrom(tx);
+        // Re-sample only after the awaited read so a stalled read cannot authorize stale time.
         const stamp=transitionNow(); if(stamp.error) return block(stamp.error); const now=stamp.now;
-        const rows=await rowsFrom(tx),matches=rows.filter(r=>r.challenge_id===challengeId);
+        const matches=rows.filter(r=>r.challenge_id===challengeId);
         if (matches.length!==1) return block("PROOF_CHALLENGE_MISSING_OR_USED");
         const row=matches[0];
         if (!sameBinding(row,context)) return block("PROOF_CHALLENGE_BINDING_MISMATCH");
