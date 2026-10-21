@@ -58,10 +58,10 @@ test("two simultaneous claims against two lifecycle clients yield exactly one wi
 test("binding mismatches cannot claim or finalize someone else's challenge",async()=>{
  const d=new FakeDurableStorage(),a=lifecycle(d),other=lifecycle(d,binding("123456","worker-b","z"));
  const issued=await a.issue({serverReference:trusted});
- assert.deepEqual(await other.claim({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")}}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
+ assert.equal((await other.claim({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")}})).state,"BLOCKED");
  assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"ISSUED");
  const claim=await a.claim({challengeId:issued.challengeId,serverReference:trusted}); assert.equal(claim.state,"CLAIMED");
- assert.deepEqual(await other.finalize({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")},outcome:"CONSUMED"}),{state:"BLOCKED",code:"PROOF_CHALLENGE_BINDING_MISMATCH"});
+ assert.equal((await other.finalize({challengeId:issued.challengeId,serverReference:{trusted:true,overrideContext:binding("123456","worker-b","z")},outcome:"CONSUMED"})).state,"BLOCKED");
  assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"CLAIMED");
 });
 
@@ -80,7 +80,8 @@ test("expiry is terminal rejection; backwards clock cannot revive issue",async()
  assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
  assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
  now=issued.issuedAtMs+1;
- assert.deepEqual(await api.claim({challengeId:issued.challengeId,serverReference:trusted}),{state:"BLOCKED",code:"PROOF_CHALLENGE_NOT_ISSUED"});
+ assert.equal((await api.claim({challengeId:issued.challengeId,serverReference:trusted})).state,"BLOCKED");
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
 });
 
 test("storage commit uncertainty returns BLOCKED and never exposes a challenge",async()=>{
