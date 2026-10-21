@@ -161,9 +161,11 @@ async function sha256Hex(value, cryptoImpl) {
 }
 
 async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
-  const now = nowMs(clock);
-  if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
-  if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
+  // Cheap preflight rejects obviously stale commands. It is never the
+  // authoritative expiry decision: async HMAC/hash work can consume the TTL.
+  const preflightNow = nowMs(clock);
+  if (preflightNow === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+  if (!validFreshCommand(request, preflightNow)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
   if (!matchesInstallationObject(env, objectId, request.installation_id)) {
     return block("ATTESTATION_CHALLENGE_INSTALLATION_MISMATCH");
   }
@@ -193,6 +195,12 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
     return await store.atomic(async tx => {
       const current = (await tx.get("attestation_challenges")) || [];
       if (!validLedger(current)) throw new Error("STORAGE_SHAPE_INVALID");
+      // Authoritative time is sampled only after HMAC verification, digesting,
+      // transaction queuing and the awaited storage read. Use this fresh time
+      // for the issue authorization, cleanup and committed row timestamps.
+      const now = nowMs(clock);
+      if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
       const live = current.filter(row => row.expires_at_ms > now);
       if (live.length !== current.length) await tx.put("attestation_challenges", live);
       if (live.some(row => row.issue_operation_id === request.operation_id ||
@@ -238,9 +246,11 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
 }
 
 async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
-  const now = nowMs(clock);
-  if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
-  if (!validFreshCommand(request, now) ||
+  // Preflight is an optimization only; command freshness and challenge expiry
+  // are revalidated at the serialized state-transition boundary below.
+  const preflightNow = nowMs(clock);
+  if (preflightNow === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+  if (!validFreshCommand(request, preflightNow) ||
       typeof request.challenge_id !== "string" || !HEX32.test(request.challenge_id) ||
       typeof request.challenge !== "string" || !HEX64.test(request.challenge)) {
     return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
@@ -264,6 +274,11 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
     return await store.atomic(async tx => {
       const rows = (await tx.get("attestation_challenges")) || [];
       if (!validLedger(rows)) throw new Error("STORAGE_SHAPE_INVALID");
+      // Do not authorize from the preflight timestamp: HMAC verification,
+      // digesting, transaction queuing or this read can cross either expiry.
+      const now = nowMs(clock);
+      if (now === null) return block("ATTESTATION_CHALLENGE_CLOCK_INVALID");
+      if (!validFreshCommand(request, now)) return block("ATTESTATION_CHALLENGE_COMMAND_STALE");
       const row = rows.find(candidate => candidate.challenge_id === request.challenge_id);
       if (!row) return block("ATTESTATION_CHALLENGE_UNKNOWN");
       if (row.installation_id !== request.installation_id ||
