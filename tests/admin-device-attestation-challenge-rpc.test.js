@@ -11,6 +11,7 @@ const WORKER = "android-worker-a";
 const AUDIENCE = "bke-command-center/preproduction/android-key-attestation/v1";
 const PURPOSE = "android_key_attestation";
 const STORAGE_KEY = "bke:pairing:v1:attestation_challenges";
+const CLOCK_KEY = "bke:pairing:v1:attestation_challenge_clock";
 const secret = new Uint8Array(32).fill(0x5a);
 const secretB64 = Buffer.from(secret).toString("base64url");
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
@@ -146,6 +147,89 @@ test("same issue operation cannot mint a second challenge", async () => {
     state: "BLOCKED", code: "ATTESTATION_CHALLENGE_ISSUE_REPLAY", authority: "NONE",
   });
   assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+});
+
+
+test("clock high-water mark blocks replay after expired-row pruning and clock rewind", async () => {
+  const api = setup();
+  const original = await signed("issue", {
+    operation_id: "a".repeat(64),
+    issued_at_ms: NOW,
+    expires_at_ms: NOW + 2_000,
+  });
+  const first = await api.run(original, () => NOW);
+  assert.equal(first.state, "CHALLENGE_ISSUED");
+
+  // At T+2001, the newer operation prunes A's now-expired replay row.
+  const later = NOW + 2_001;
+  const newerRequest = await signed("issue", {
+    operation_id: "b".repeat(64),
+    issued_at_ms: later,
+    expires_at_ms: later + 10_000,
+  });
+  const newer = await api.run(newerRequest, () => later);
+  assert.equal(newer.state, "CHALLENGE_ISSUED");
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), [{ high_watermark_ms: later }]);
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].issue_operation_id, newerRequest.operation_id);
+
+  // The exact original request is fresh again under wall-clock-only checks;
+  // the durable fence must reject it before pruning or issuing a replacement.
+  const rewind = NOW + 1_000;
+  const replay = await api.run(original, () => rewind);
+  assert.deepEqual(replay, {
+    state: "BLOCKED",
+    code: "ATTESTATION_CHALLENGE_CLOCK_ROLLBACK",
+    authority: "NONE",
+  });
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].issue_operation_id, newerRequest.operation_id);
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), [{ high_watermark_ms: later }]);
+});
+
+test("clock high-water mark advances on consume and preserves forward-time operation", async () => {
+  const api = setup();
+  const { result: issued } = await issue(api, {
+    operation_id: "c".repeat(64),
+    expires_at_ms: NOW + 30_000,
+  });
+  assert.equal(issued.state, "CHALLENGE_ISSUED");
+
+  const forward = NOW + 1_000;
+  const consume = await consumeRequest(issued, {
+    operation_id: "d".repeat(64),
+    issued_at_ms: forward,
+    expires_at_ms: forward + 20_000,
+  });
+  const consumed = await api.run(consume, () => forward);
+  assert.equal(consumed.state, "CHALLENGE_CONSUMED");
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), [{ high_watermark_ms: forward }]);
+
+  // A valid fresh command at an earlier observation must fail before mutation.
+  const rolledBackRequest = await signed("issue", {
+    operation_id: "e".repeat(64),
+    issued_at_ms: NOW + 500,
+    expires_at_ms: NOW + 10_000,
+  });
+  const blocked = await api.run(rolledBackRequest, () => NOW + 500);
+  assert.equal(blocked.code, "ATTESTATION_CHALLENGE_CLOCK_ROLLBACK");
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, forward);
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), [{ high_watermark_ms: forward }]);
+});
+
+test("corrupt persisted clock high-water mark fails closed", async () => {
+  const api = setup();
+  const corrupt = [{ high_watermark_ms: "not-a-timestamp" }];
+  api.storage.data.set(CLOCK_KEY, structuredClone(corrupt));
+  const request = await signed("issue", {
+    operation_id: "f".repeat(64),
+  });
+
+  const result = await api.run(request);
+  assert.equal(result.code, "ATTESTATION_CHALLENGE_ISSUE_OUTCOME_UNCERTAIN");
+  assert.equal(api.storage.data.has(STORAGE_KEY), false);
+  assert.deepEqual(api.storage.data.get(CLOCK_KEY), corrupt);
 });
 
 test("concurrent consume attempts atomically produce exactly one success; replay has no authority", async () => {
