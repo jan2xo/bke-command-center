@@ -268,5 +268,32 @@ export class BkeWorkerPairingVault {
     });
     return lifecycle.finalize({challengeId,serverReference,outcome});
   }
+  async issueProofChallenge({serverReference} = {}) {
+    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
+        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
+    const lifecycle=createAndroidProofChallengeLifecycle({
+      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
+      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
+    });
+    return lifecycle.issue({serverReference});
+  }
+  async claimProofChallenge({challengeId,serverReference} = {}) {
+    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
+        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
+    const lifecycle=createAndroidProofChallengeLifecycle({
+      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
+      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
+    });
+    return lifecycle.claim({challengeId,serverReference});
+  }
+  async finalizeProofChallenge({challengeId,serverReference,outcome} = {}) {
+    if (this.#env?.BKE_PREPRODUCTION !== "true" ||
+        this.#env?.BKE_ANDROID_PROOF_CHALLENGE_ENABLED !== "true") return block("PROOF_CHALLENGE_LOCKED");
+    const lifecycle=createAndroidProofChallengeLifecycle({
+      store:this.#store,installationId:String(this.#env?.BKE_PAIRING_INSTALLATION_ID || ""),
+      resolveTrustedContext:this.#env?.BKE_PROOF_CHALLENGE_CONTEXT_RESOLVER,
+    });
+    return lifecycle.finalize({challengeId,serverReference,outcome});
+  }
   async fetch(_request){return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});}
 }
