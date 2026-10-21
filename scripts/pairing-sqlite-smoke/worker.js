@@ -46,7 +46,12 @@ export default {async fetch(request,env){
   requireCondition(await a.commitAll()==="COMMITTED","FIVE_KEY_COMMIT");
   const before=await a.inspect();requireCondition(before.paired.length===2&&before.pending.length===1&&before.admin_actions.length===1&&before.consents.length===1&&before.prepared.length===1,"FIVE_KEY_VISIBILITY");
   requireCondition(await a.failAll()==="ROLLED_BACK","ROLLBACK");requireCondition(same(before,await a.inspect()),"ATOMIC_NO_PARTIAL_WRITE");
-  await Promise.all([a.record("c"),a.record("d")]);requireCondition((await a.inspect()).paired.length===4,"PAIRING_CONCURRENCY");
+  const [recordC,recordD]=await Promise.all([a.record("c"),a.record("d")]);
+  const concurrentPairs=(await a.inspect()).paired;
+  requireCondition(recordC>=3&&recordD>=3&&concurrentPairs.length===4,"PAIRING_CONCURRENCY_COUNT");
+  const pairIds=concurrentPairs.map(row=>row.id);
+  requireCondition(new Set(pairIds).size===4,"PAIRING_CONCURRENCY_UNIQUE_IDS");
+  requireCondition(["a","b","c","d"].every(id=>pairIds.filter(value=>value===id).length===1),"PAIRING_CONCURRENCY_EXPECTED_IDS");
   const owner={trusted:true,workerId:"worker-a",suffix:"a"};
   const issued=await a.issueTest(owner);requireCondition(issued.state==="ISSUED","PROOF_ISSUE");
   const contests=await Promise.all([a.claimTest(issued.challengeId,owner),a.claimTest(issued.challengeId,owner)]);
