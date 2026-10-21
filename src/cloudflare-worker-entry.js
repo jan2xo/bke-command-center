@@ -11,5 +11,8 @@ export class BkeWorkerPairingVault extends DurableObject {
   async issueAtomicPairingInvitation(request){return this.#logic.issueAtomicPairingInvitation(request);}
   async reviewPairingConsent(command){return this.#logic.reviewPairingConsent(command);}
   async managePreparedDeviceProposal(command){return this.#logic.managePreparedDeviceProposal(command);}
+  async issueProofChallenge(command){return this.#logic.issueProofChallenge(command);}
+  async claimProofChallenge(command){return this.#logic.claimProofChallenge(command);}
+  async finalizeProofChallenge(command){return this.#logic.finalizeProofChallenge(command);}
   async fetch(request){return this.#logic.fetch(request);}
 }
