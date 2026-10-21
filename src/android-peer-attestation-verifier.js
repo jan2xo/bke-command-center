@@ -152,7 +152,7 @@ function parseAttestation(encoded) {
   tag(f[4],0,4,false); tag(f[5],0,4,false); tag(f[6],0,16,true); tag(f[7],0,16,true);
   const attestationLevel = f[1].value.length === 1 ? f[1].value[0] : -1;
   const keyLevel = f[3].value.length === 1 ? f[3].value[0] : -1;
-  if (![1,2].includes(attestationLevel) || ![1,2].includes(keyLevel)) throw Error("ANDROID_KEY_NOT_HARDWARE_ATTESTED");
+  if (![1,2].includes(attestationLevel) || ![1,2].includes(keyLevel) || attestationLevel !== keyLevel) throw Error("ANDROID_KEY_NOT_HARDWARE_ATTESTED");
   const appIds = [];
   for (const auth of [f[6],f[7]]) for (const item of children(auth,encoded)) {
     if (item.tagClass === 2 && item.tagNumber === 709) {
@@ -261,6 +261,7 @@ function getChain(evidence, context, at) {
   const root=certs[certs.length-1], rootFp=fingerprints[fingerprints.length-1];
   if (!root.ca||!context.approvedRootFingerprints256.includes(rootFp)||!root.checkIssued(root)||!root.verify(root.publicKey)) throw Error("ATTESTATION_ROOT_NOT_PINNED");
   const key=certs[0].publicKey;
+  if (!Array.isArray(certs[0].keyUsage) || !certs[0].keyUsage.some(u=>/digitalSignature/iu.test(u))) throw Error("ATTESTATION_LEAF_KEY_USAGE");
   if (key.asymmetricKeyType!=="ec"||key.asymmetricKeyDetails?.namedCurve!=="prime256v1") throw Error("ATTESTATION_LEAF_KEY_NOT_P256");
   return {certs,extensions,rootFingerprint256:rootFp};
 }
