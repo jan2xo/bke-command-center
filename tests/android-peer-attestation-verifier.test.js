@@ -42,6 +42,7 @@ function keyDescription(initialChallenge, signerDigest, securityLevel=2) {
 function makeCertFixture({securityLevel=2}={}) {
   const directory=mkdtempSync(join(tmpdir(),"bke-android-attestation-"));
   const rootKey=join(directory,"root.key"),rootPem=join(directory,"root.pem");
+  const intermediateKey=join(directory,"intermediate.key"),intermediateCsr=join(directory,"intermediate.csr"),intermediatePem=join(directory,"intermediate.pem");
   const leafKey=join(directory,"leaf.key"),leafCsr=join(directory,"leaf.csr"),leafPem=join(directory,"leaf.pem");
   const initialChallenge=Buffer.alloc(32,0x22);
   const proofChallenge=Buffer.alloc(32,0x11);
@@ -51,6 +52,17 @@ function makeCertFixture({securityLevel=2}={}) {
   run(["req","-x509","-new","-key",rootKey,"-sha256","-days","3650","-subj","/CN=BKE Test Attestation Root",
     "-addext","basicConstraints=critical,CA:TRUE","-addext","keyUsage=critical,keyCertSign,cRLSign",
     "-addext","subjectKeyIdentifier=hash","-out",rootPem]);
+  run(["ecparam","-name","prime256v1","-genkey","-noout","-out",intermediateKey]);
+  run(["req","-new","-key",intermediateKey,"-subj","/CN=BKE Test Attestation Intermediate","-out",intermediateCsr]);
+  const intermediateConfig=join(directory,"intermediate.cnf");
+  writeFileSync(intermediateConfig,
+    "[intermediate]\\n"+
+    "basicConstraints=critical,CA:TRUE,pathlen:0\\n"+
+    "keyUsage=critical,keyCertSign,cRLSign\\n"+
+    "subjectKeyIdentifier=hash\\n"+
+    "authorityKeyIdentifier=keyid,issuer\\n");
+  run(["x509","-req","-in",intermediateCsr,"-CA",rootPem,"-CAkey",rootKey,"-set_serial","10",
+    "-days","3650","-sha256","-extfile",intermediateConfig,"-extensions","intermediate","-out",intermediatePem]);
   run(["ecparam","-name","prime256v1","-genkey","-noout","-out",leafKey]);
   run(["req","-new","-key",leafKey,"-subj","/CN=BKE Test Attested Android Key","-out",leafCsr]);
   const extension=keyDescription(initialChallenge,signerDigest,securityLevel).toString("hex");
@@ -62,9 +74,10 @@ function makeCertFixture({securityLevel=2}={}) {
     "subjectKeyIdentifier=hash\n"+
     "authorityKeyIdentifier=keyid,issuer\n"+
     "1.3.6.1.4.1.11129.2.1.17=DER:"+extension+"\n");
-  run(["x509","-req","-in",leafCsr,"-CA",rootPem,"-CAkey",rootKey,"-set_serial","02",
+  run(["x509","-req","-in",leafCsr,"-CA",intermediatePem,"-CAkey",intermediateKey,"-set_serial","02",
     "-days","365","-sha256","-extfile",config,"-extensions","leaf","-out",leafPem]);
   const leafDer=new X509Certificate(readFileSync(leafPem));
+  const intermediateDer=new X509Certificate(readFileSync(intermediatePem));
   const rootDer=new X509Certificate(readFileSync(rootPem));
   const privateKey=createPrivateKey(readFileSync(leafKey));
   const publicKeyDer=createPublicKey(privateKey).export({type:"spki",format:"der"});
@@ -75,7 +88,7 @@ function makeCertFixture({securityLevel=2}={}) {
     challengeBase64Url:base64url(proofChallenge),
     initialAttestationChallengeBase64Url:base64url(initialChallenge),
     publicKeyBase64Url:base64url(publicKeyDer),
-    attestationChainBase64Url:[base64url(leafDer.raw),base64url(rootDer.raw)],
+    attestationChainBase64Url:[base64url(leafDer.raw),base64url(intermediateDer.raw),base64url(rootDer.raw)],
     signatureBase64Url:"pending",hardwareBacked:true,
   };
   const fields=[proofChallenge,Buffer.from(WORKER),Buffer.from(SESSION),Buffer.from(PROFILE),Buffer.from(BRIDGE),Buffer.from("https://chatgpt.com")];
