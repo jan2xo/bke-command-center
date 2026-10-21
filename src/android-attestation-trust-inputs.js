@@ -288,57 +288,67 @@ export function createGoogleAttestationRevocationLoader({
     if (typeof fetchImpl !== "function") return { blocked: blocked("FETCH_UNAVAILABLE") };
     const controller = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, REQUEST_TIMEOUT_MS);
+    let timer;
+    const work = (async () => {
+      try {
+        const response = await fetchImpl(GOOGLE_STATUS_URL, {
+          method: "GET",
+          headers: { accept: "application/json" },
+          redirect: "error",
+          signal: controller.signal,
+        });
+        if (!response || !response.headers || typeof response.status !== "number") {
+          throw errorWithCode("STATUS_RESPONSE_INVALID");
+        }
+        if (response.status >= 300 && response.status < 400) throw errorWithCode("REDIRECT_REJECTED");
+        if (response.status !== 200) throw errorWithCode("HTTP_STATUS_BLOCKED");
+        if (response.url && response.url !== GOOGLE_STATUS_URL) throw errorWithCode("STATUS_SOURCE_MISMATCH");
+        const contentType = response.headers.get("content-type");
+        if (typeof contentType !== "string" || !/^application\\/json(?:\\s*;|\\s*$)/iu.test(contentType)) {
+          throw errorWithCode("CONTENT_TYPE_INVALID");
+        }
+        const payload = await readBoundedJson(response);
+        const entries = parseStatusEntries(payload);
+        const receivedAtMs = readClock();
+        if (receivedAtMs === null) throw errorWithCode("CLOCK_UNCERTAIN");
+        const dateHeader = response.headers.get("date");
+        const serverDateMs = typeof dateHeader === "string" ? Date.parse(dateHeader) : NaN;
+        if (!Number.isFinite(serverDateMs) || Math.abs(serverDateMs - receivedAtMs) > MAX_CLOCK_SKEW_MS) {
+          throw errorWithCode("CLOCK_UNCERTAIN");
+        }
+        const freshness = parseCacheLifetime(response.headers);
+        if (freshness.error) throw errorWithCode(freshness.error);
+        const expiresAtMs = receivedAtMs + freshness.effectiveFreshnessMs;
+        if (!isSafeTime(expiresAtMs) || expiresAtMs <= receivedAtMs) throw errorWithCode("CLOCK_UNCERTAIN");
+        const snapshot = Object.freeze({
+          source: GOOGLE_STATUS_URL,
+          fetchedAtMs: receivedAtMs,
+          cacheMaxAgeMs: freshness.effectiveFreshnessMs,
+          entries,
+        });
+        return { cache: Object.freeze({ snapshot, expiresAtMs }) };
+      } catch (error) {
+        const code = error?.code ??
+          (timedOut || error?.name === "TimeoutError" || error?.name === "AbortError"
+            ? "FETCH_TIMEOUT" : "FETCH_FAILED");
+        return { blocked: blocked(code) };
+      }
+    })();
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        resolve({ blocked: blocked("FETCH_TIMEOUT") });
+      }, REQUEST_TIMEOUT_MS);
+    });
     try {
-      const response = await fetchImpl(GOOGLE_STATUS_URL, {
-        method: "GET",
-        headers: { accept: "application/json" },
-        redirect: "error",
-        signal: controller.signal,
-      });
-      if (!response || !response.headers || typeof response.status !== "number") {
-        throw errorWithCode("STATUS_RESPONSE_INVALID");
-      }
-      if (response.status >= 300 && response.status < 400) throw errorWithCode("REDIRECT_REJECTED");
-      if (response.status !== 200) throw errorWithCode("HTTP_STATUS_BLOCKED");
-      if (response.url && response.url !== GOOGLE_STATUS_URL) throw errorWithCode("STATUS_SOURCE_MISMATCH");
-      const contentType = response.headers.get("content-type");
-      if (typeof contentType !== "string" || !/^application\/json(?:\s*;|\s*$)/iu.test(contentType)) {
-        throw errorWithCode("CONTENT_TYPE_INVALID");
-      }
-      const payload = await readBoundedJson(response);
-      const entries = parseStatusEntries(payload);
-      const receivedAtMs = readClock();
-      if (receivedAtMs === null) throw errorWithCode("CLOCK_UNCERTAIN");
-      const dateHeader = response.headers.get("date");
-      const serverDateMs = typeof dateHeader === "string" ? Date.parse(dateHeader) : NaN;
-      if (!Number.isFinite(serverDateMs) || Math.abs(serverDateMs - receivedAtMs) > MAX_CLOCK_SKEW_MS) {
-        throw errorWithCode("CLOCK_UNCERTAIN");
-      }
-      const freshness = parseCacheLifetime(response.headers);
-      if (freshness.error) throw errorWithCode(freshness.error);
-      const expiresAtMs = receivedAtMs + freshness.effectiveFreshnessMs;
-      if (!isSafeTime(expiresAtMs) || expiresAtMs <= receivedAtMs) throw errorWithCode("CLOCK_UNCERTAIN");
-      const snapshot = Object.freeze({
-        source: GOOGLE_STATUS_URL,
-        fetchedAtMs: receivedAtMs,
-        cacheMaxAgeMs: freshness.effectiveFreshnessMs,
-        entries,
-      });
-      return { cache: Object.freeze({ snapshot, expiresAtMs }) };
-    } catch (error) {
-      const code = error?.code ??
-        (timedOut || error?.name === "TimeoutError" || error?.name === "AbortError"
-          ? "FETCH_TIMEOUT" : "FETCH_FAILED");
-      return { blocked: blocked(code) };
+      // The race enforces the deadline even if a fetch adapter ignores AbortSignal.
+      // Late completions are handled by work but cannot replace the timed-out result.
+      return await Promise.race([work, deadline]);
     } finally {
       clearTimeout(timer);
     }
   }
-
   function available(cache) {
     return Object.freeze({
       state: "REVOCATION_STATUS_AVAILABLE",
