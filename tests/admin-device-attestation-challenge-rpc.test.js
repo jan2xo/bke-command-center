@@ -384,3 +384,165 @@ test("uncertain post-commit outcomes fail closed and a retry cannot mint or cons
   assert.equal(second.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, NOW);
   assert.equal((await second.run(consumeRequestValue)).code, "ATTESTATION_CHALLENGE_REPLAY");
 });
+
+
+function deferredGate() {
+  let release;
+  let markEntered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { markEntered = resolve; });
+  return { gate, entered, release, markEntered };
+}
+
+function delayHmacVerification() {
+  const hold = deferredGate();
+  return {
+    entered: hold.entered,
+    release: hold.release,
+    cryptoImpl: {
+      getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+      subtle: {
+        importKey: webcrypto.subtle.importKey.bind(webcrypto.subtle),
+        digest: webcrypto.subtle.digest.bind(webcrypto.subtle),
+        verify: async (...args) => {
+          hold.markEntered();
+          await hold.gate;
+          return webcrypto.subtle.verify(...args);
+        },
+      },
+    },
+  };
+}
+
+function delayChallengeStorageRead(api) {
+  const hold = deferredGate();
+  const baseStore = createPairingAtomicStore(api.storage);
+  const store = {
+    atomic: operation => baseStore.atomic(tx => operation({
+      get: async key => {
+        const value = await tx.get(key);
+        if (key === "attestation_challenges") {
+          hold.markEntered();
+          await hold.gate;
+        }
+        return value;
+      },
+      put: (key, value) => tx.put(key, value),
+    })),
+  };
+  return { store, entered: hold.entered, release: hold.release };
+}
+
+async function invokeWith(api, request, { cryptoImpl = webcrypto, store = api.store, clock }) {
+  return receiveDeviceAttestationChallenge({
+    request, env: api.env, objectId: api.objectId, store, cryptoImpl,
+    clock: clock ?? (() => NOW),
+  });
+}
+
+test("issue revalidates signed-command freshness after delayed HMAC verification at and beyond expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    let now = NOW;
+    const request = await signed("issue", {
+      operation_id: (offset === 0 ? "1" : "2").repeat(64),
+      expires_at_ms: NOW + 10_000,
+    });
+    const delayed = delayHmacVerification();
+    const pending = invokeWith(api, request, {
+      cryptoImpl: delayed.cryptoImpl,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = request.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED", "issue must block at/after signed command expiry");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_COMMAND_STALE");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.has(STORAGE_KEY), false);
+  }
+});
+
+test("issue revalidates signed-command freshness after delayed storage read at and beyond expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    let now = NOW;
+    const request = await signed("issue", {
+      operation_id: (offset === 0 ? "3" : "4").repeat(64),
+      expires_at_ms: NOW + 10_000,
+    });
+    const delayed = delayChallengeStorageRead(api);
+    const pending = invokeWith(api, request, {
+      store: delayed.store,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = request.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED", "issue must block at/after signed command expiry");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_COMMAND_STALE");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.has(STORAGE_KEY), false);
+  }
+});
+
+test("consume revalidates signed-command freshness after delayed HMAC verification at and beyond expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    const { result: issued } = await issue(api, {
+      operation_id: (offset === 0 ? "5" : "6").repeat(64),
+      expires_at_ms: NOW + 30_000,
+    });
+    assert.equal(issued.state, "CHALLENGE_ISSUED");
+    let now = NOW;
+    const request = await consumeRequest(issued, {
+      operation_id: (offset === 0 ? "7" : "8").repeat(64),
+      expires_at_ms: NOW + 10_000,
+    });
+    const delayed = delayHmacVerification();
+    const pending = invokeWith(api, request, {
+      cryptoImpl: delayed.cryptoImpl,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = request.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED", "consume must block at/after signed command expiry");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_COMMAND_STALE");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
+  }
+});
+
+test("consume revalidates challenge expiry after delayed storage read at and beyond expiry", async () => {
+  for (const offset of [0, 1]) {
+    const api = setup();
+    const { result: issued } = await issue(api, {
+      operation_id: (offset === 0 ? "9" : "a").repeat(64),
+      expires_at_ms: NOW + 5_000,
+    });
+    assert.equal(issued.state, "CHALLENGE_ISSUED");
+    let now = NOW;
+    // The consume command remains fresh beyond the row's earlier challenge expiry.
+    const request = await consumeRequest(issued, {
+      operation_id: (offset === 0 ? "b" : "c").repeat(64),
+      expires_at_ms: NOW + 30_000,
+    });
+    const delayed = delayChallengeStorageRead(api);
+    const pending = invokeWith(api, request, {
+      store: delayed.store,
+      clock: () => now,
+    });
+    await delayed.entered;
+    now = issued.expires_at_ms + offset;
+    delayed.release();
+    const result = await pending;
+    assert.equal(result.state, "BLOCKED", "consume must block at/after challenge expiry");
+    assert.equal(result.code, "ATTESTATION_CHALLENGE_EXPIRED");
+    assert.equal(result.authority, "NONE");
+    assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
+  }
+});
