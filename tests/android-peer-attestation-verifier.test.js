@@ -185,6 +185,11 @@ test("requires hardware-enforced RootOfTrust, locked bootloader and Verified boo
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:duplicate.evidence,serverContext:duplicate.context}).state,"BLOCKED");
 });
 
+test("does not accept application identity from the hardware-enforced list",()=>{
+  const f=makeCertFixture({applicationIdPlacement:"hardware"});otherFixtures.push(f);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context}).state,"BLOCKED");
+});
+
 test("rejects issuers without X.509 KeyUsage keyCertSign",()=>{
   const f=makeCertFixture({omitIssuerKeyCertSign:true});otherFixtures.push(f);
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context}).state,"BLOCKED");
