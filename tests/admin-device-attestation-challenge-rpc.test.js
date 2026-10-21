@@ -387,7 +387,8 @@ test("server clock rollback cannot consume a challenge before its issue timestam
     expires_at_ms: rollbackNow + 20_000,
   });
   const result = await api.run(req, () => rollbackNow);
-  assert.equal(result.code, "ATTESTATION_CHALLENGE_CLOCK_BEFORE_ISSUE");
+  assert.equal(result.code, "ATTESTATION_CHALLENGE_CLOCK_ROLLBACK",
+    "the persisted high-water mark rejects the earlier observation before consume");
   assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
 });
 
