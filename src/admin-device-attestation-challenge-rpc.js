@@ -143,15 +143,14 @@ function validLedger(rows) {
   if (!Array.isArray(rows) || rows.length > MAX_ROWS ||
       rows.some(row => !validStoredRow(row))) return false;
   const ids = new Set();
-  const issueOperations = new Set();
-  const consumeOperations = new Set();
+  const operations = new Set();
   for (const row of rows) {
-    if (ids.has(row.challenge_id) || issueOperations.has(row.issue_operation_id)) return false;
+    if (ids.has(row.challenge_id) || operations.has(row.issue_operation_id)) return false;
     ids.add(row.challenge_id);
-    issueOperations.add(row.issue_operation_id);
+    operations.add(row.issue_operation_id);
     if (row.consume_operation_id !== null) {
-      if (consumeOperations.has(row.consume_operation_id)) return false;
-      consumeOperations.add(row.consume_operation_id);
+      if (operations.has(row.consume_operation_id)) return false;
+      operations.add(row.consume_operation_id);
     }
   }
   return true;
@@ -196,7 +195,8 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
       if (!validLedger(current)) throw new Error("STORAGE_SHAPE_INVALID");
       const live = current.filter(row => row.expires_at_ms > now);
       if (live.length !== current.length) await tx.put("attestation_challenges", live);
-      if (live.some(row => row.issue_operation_id === request.operation_id)) {
+      if (live.some(row => row.issue_operation_id === request.operation_id ||
+          row.consume_operation_id === request.operation_id)) {
         return block("ATTESTATION_CHALLENGE_ISSUE_REPLAY");
       }
       if (live.length >= MAX_ROWS) return block("ATTESTATION_CHALLENGE_LEDGER_FULL");
@@ -277,7 +277,11 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
       if (row.consumed_at_ms !== null || row.consume_operation_id !== null) {
         return block("ATTESTATION_CHALLENGE_REPLAY");
       }
-      if (rows.some(candidate => candidate.consume_operation_id === request.operation_id)) {
+      // A clock rollback must not allow a validly signed consume command to
+      // create a consumed timestamp before this challenge was issued.
+      if (now < row.issued_at_ms) return block("ATTESTATION_CHALLENGE_CLOCK_BEFORE_ISSUE");
+      if (rows.some(candidate => candidate.issue_operation_id === request.operation_id ||
+          candidate.consume_operation_id === request.operation_id)) {
         return block("ATTESTATION_CHALLENGE_CONSUME_OPERATION_REPLAY");
       }
       if (row.challenge_sha256 !== challengeHash) {
