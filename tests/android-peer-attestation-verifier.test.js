@@ -71,7 +71,8 @@ function makeCertFixture(options={}) {
     "basicConstraints=critical,CA:TRUE,pathlen:0\n"+
     (options.omitIssuerKeyCertSign ? "keyUsage=critical,cRLSign\n" : "keyUsage=critical,keyCertSign,cRLSign\n")+
     "subjectKeyIdentifier=hash\n"+
-    "authorityKeyIdentifier=keyid,issuer\n");
+    "authorityKeyIdentifier=keyid,issuer\n"+
+    (options.attestationOnIntermediate ? "1.3.6.1.4.1.11129.2.1.17=DER:"+keyDescription(Buffer.alloc(32,0x99),signerDigest,options).toString("hex")+"\n" : ""));
   run(["x509","-req","-in",intermediateCsr,"-CA",rootPem,"-CAkey",rootKey,"-set_serial","10",
     "-days","3650","-sha256","-extfile",intermediateConfig,"-extensions","intermediate","-out",intermediatePem]);
   run(["ecparam","-name","prime256v1","-genkey","-noout","-out",leafKey]);
@@ -80,11 +81,11 @@ function makeCertFixture(options={}) {
   const config=join(directory,"leaf.cnf");
   writeFileSync(config,
     "[leaf]\n"+
-    "basicConstraints=critical,CA:FALSE\n"+
+    (options.omitLeafBasicConstraints ? "" : "basicConstraints=critical,CA:"+(options.leafIsCA ? "TRUE" : "FALSE")+"\n")+
     "keyUsage=critical,digitalSignature\n"+
     "subjectKeyIdentifier=hash\n"+
     "authorityKeyIdentifier=keyid,issuer\n"+
-    "1.3.6.1.4.1.11129.2.1.17=DER:"+extension+"\n");
+    (options.omitLeafAttestation ? "" : "1.3.6.1.4.1.11129.2.1.17=DER:"+extension+"\n"));
   run(["x509","-req","-in",leafCsr,"-CA",intermediatePem,"-CAkey",intermediateKey,"-set_serial","02",
     "-days","365","-sha256","-extfile",config,"-extensions","leaf","-out",leafPem]);
   const leafDer=new X509Certificate(readFileSync(leafPem));
@@ -187,6 +188,26 @@ test("requires hardware-enforced RootOfTrust, locked bootloader and Verified boo
 
 test("does not accept application identity from the hardware-enforced list",()=>{
   const f=makeCertFixture({applicationIdPlacement:"hardware"});otherFixtures.push(f);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context}).state,"BLOCKED");
+});
+
+test("enforces the leaf-only attestation extension profile across the entire chain",()=>{
+  const parentOnly=makeCertFixture({omitLeafAttestation:true,attestationOnIntermediate:true});otherFixtures.push(parentOnly);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:parentOnly.evidence,serverContext:parentOnly.context}).state,"BLOCKED");
+  const conflicting=makeCertFixture({attestationOnIntermediate:true});otherFixtures.push(conflicting);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:conflicting.evidence,serverContext:conflicting.context}).state,"BLOCKED");
+});
+
+test("accepts a valid end-entity attestation leaf without BasicConstraints",()=>{
+  const f=makeCertFixture({omitLeafBasicConstraints:true});otherFixtures.push(f);
+  const result=verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context});
+  assert.equal(result.state,"ANDROID_PEER_EVIDENCE_VERIFIED");
+  assert.equal(result.pairing_authority,"NONE");
+  assert.equal(result.dispatch_authority,"NONE");
+});
+
+test("rejects an attestation leaf explicitly marked as a CA",()=>{
+  const f=makeCertFixture({leafIsCA:true});otherFixtures.push(f);
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context}).state,"BLOCKED");
 });
 

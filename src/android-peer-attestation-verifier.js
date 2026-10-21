@@ -302,7 +302,12 @@ function getChain(evidence, context, at) {
       if (entry.critical&&!understoodCritical.has(extensionOid)) throw Error("ATTESTATION_UNKNOWN_CRITICAL_EXTENSION");
       if (extensionOid==="2.5.29.30") throw Error("ATTESTATION_NAME_CONSTRAINTS_UNSUPPORTED");
     }
-    if (!items.has("2.5.29.19")) throw Error("ATTESTATION_BASIC_CONSTRAINTS_MISSING");
+    if (!items.has("2.5.29.19")) {
+      // Android end-entity attestation leaves may omit BasicConstraints. Issuers and
+      // the pinned root must carry explicit CA constraints; the leaf must still be non-CA.
+      if (index===0 && certs[index].ca===false) return {ca:false,pathLen:null};
+      throw Error("ATTESTATION_BASIC_CONSTRAINTS_MISSING");
+    }
     const parsed=parseBasicConstraints(items.get("2.5.29.19").value);
     if (parsed.ca!==certs[index].ca) throw Error("ATTESTATION_BASIC_CONSTRAINTS_MISMATCH");
     return parsed;
@@ -368,9 +373,16 @@ export function verifyAndroidPeerAttestationEvidence({evidence,serverContext,clo
     if (!challenge||challenge.length!==32||!initial||initial.length!==32||!publicKeyDer||!signature) return blocked("ANDROID_EVIDENCE_ENCODING_INVALID");
     const chain=getChain(evidence,serverContext,at), leaf=chain.certs[0];
     if (!leaf.publicKey.export({type:"spki",format:"der"}).equals(publicKeyDer)) return blocked("ANDROID_PUBLIC_KEY_MISMATCH");
-    const leafExtensions=chain.extensions[0];
-    if (!leafExtensions.has(EXT_OID)) return blocked("ANDROID_KEY_ATTESTATION_EXTENSION_MISSING");
-    const attestation=parseAttestation(leafExtensions.get(EXT_OID).value);
+    // Enforce a deliberately narrow leaf-only profile. Android's verification
+    // guidance selects the authoritative attestation extension root-to-leaf; this
+    // verifier fails closed unless the leaf contains the sole extension in the chain.
+    const attestationExtensionCerts=chain.extensions
+      .map((items,index)=>items.has(EXT_OID)?index:-1)
+      .filter(index=>index!==-1);
+    if (attestationExtensionCerts.length!==1 || attestationExtensionCerts[0]!==0) {
+      return blocked("ANDROID_ATTESTATION_EXTENSION_PROFILE_INVALID");
+    }
+    const attestation=parseAttestation(chain.extensions[0].get(EXT_OID).value);
     if (!attestation.challenge.equals(initial)||!attestation.challenge.equals(b64(serverContext.initialAttestationChallengeBase64Url,32))) {
       return blocked("ANDROID_INITIAL_CHALLENGE_MISMATCH");
     }
