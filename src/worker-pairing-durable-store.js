@@ -138,13 +138,15 @@ export function createAndroidProofChallengeLifecycle({
     throw Error("PROOF_CHALLENGE_ADAPTER_NOT_CONFIGURED");
   }
   const trusted = async (reference, operation) => {
-    const now = nowMs(clock);
-    if (now === null) return {error:"PROOF_CHALLENGE_CLOCK_INVALID"};
     let context;
     try { context = await resolveTrustedContext(reference, operation); }
     catch { return {error:"PROOF_CHALLENGE_TRUST_CONTEXT_UNAVAILABLE"}; }
     if (!validServerContext(context,String(installationId))) return {error:"PROOF_CHALLENGE_TRUST_CONTEXT_UNAVAILABLE"};
-    return {context:Object.freeze(structuredClone(context)),now};
+    return {context:Object.freeze(structuredClone(context))};
+  };
+  const transitionNow = () => {
+    const now = nowMs(clock);
+    return now === null ? {error:"PROOF_CHALLENGE_CLOCK_INVALID"} : {now};
   };
   const atomic = async operation => {
     try { return await store.atomic(operation); }
@@ -166,7 +168,10 @@ export function createAndroidProofChallengeLifecycle({
       let nonce,id;
       try { nonce=randomNonce(cryptoImpl); id=randomId(cryptoImpl); }
       catch { return block("PROOF_CHALLENGE_RANDOM_UNAVAILABLE"); }
-      const {context,now}=auth;
+      const {context}=auth;
+      const timestamp=transitionNow();
+      if(timestamp.error) return block(timestamp.error);
+      const now=timestamp.now;
       const row = {
         challenge_id:id,challenge_base64url:nonce,
         installation_id:context.installation_id,worker_id:context.worker_id,
@@ -191,8 +196,9 @@ export function createAndroidProofChallengeLifecycle({
       if (typeof challengeId!=="string" || !/^[a-f0-9]{64}$/u.test(challengeId)) return block("PROOF_CHALLENGE_ID_INVALID");
       const auth=await trusted(serverReference,"claim");
       if (auth.error) return block(auth.error);
-      const {context,now}=auth;
+      const {context}=auth;
       return atomic(async tx=>{
+        const stamp=transitionNow(); if(stamp.error) return block(stamp.error); const now=stamp.now;
         const rows=await rowsFrom(tx),matches=rows.filter(r=>r.challenge_id===challengeId);
         if (matches.length!==1) return block("PROOF_CHALLENGE_MISSING_OR_USED");
         const row=matches[0];
@@ -215,8 +221,9 @@ export function createAndroidProofChallengeLifecycle({
           !["CONSUMED","REJECTED"].includes(outcome)) return block("PROOF_CHALLENGE_FINALIZE_INPUT_INVALID");
       const auth=await trusted(serverReference,"finalize");
       if (auth.error) return block(auth.error);
-      const {context,now}=auth;
+      const {context}=auth;
       return atomic(async tx=>{
+        const stamp=transitionNow(); if(stamp.error) return block(stamp.error); const now=stamp.now;
         const rows=await rowsFrom(tx),matches=rows.filter(r=>r.challenge_id===challengeId);
         if (matches.length!==1) return block("PROOF_CHALLENGE_MISSING_OR_USED");
         const row=matches[0];
