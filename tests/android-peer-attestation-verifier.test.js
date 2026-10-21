@@ -170,6 +170,26 @@ test("refuses software-only Android attestation security levels",()=>{
   assert.equal(result.state,"BLOCKED");
 });
 
+test("requires hardware-enforced RootOfTrust, locked bootloader and Verified boot state",()=>{
+  const missing=makeCertFixture({omitRoot:true});otherFixtures.push(missing);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:missing.evidence,serverContext:missing.context}).state,"BLOCKED");
+  const softwareOnly=makeCertFixture({rootPlacement:"software"});otherFixtures.push(softwareOnly);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:softwareOnly.evidence,serverContext:softwareOnly.context}).state,"BLOCKED");
+  const unlocked=makeCertFixture({locked:false});otherFixtures.push(unlocked);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:unlocked.evidence,serverContext:unlocked.context}).state,"BLOCKED");
+  for(const state of [1,2,3]) {
+    const unverified=makeCertFixture({bootState:state});otherFixtures.push(unverified);
+    assert.equal(verifyAndroidPeerAttestationEvidence({evidence:unverified.evidence,serverContext:unverified.context}).state,"BLOCKED");
+  }
+  const duplicate=makeCertFixture({rootCopies:2});otherFixtures.push(duplicate);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:duplicate.evidence,serverContext:duplicate.context}).state,"BLOCKED");
+});
+
+test("rejects issuers without X.509 KeyUsage keyCertSign",()=>{
+  const f=makeCertFixture({omitIssuerKeyCertSign:true});otherFixtures.push(f);
+  assert.equal(verifyAndroidPeerAttestationEvidence({evidence:f.evidence,serverContext:f.context}).state,"BLOCKED");
+});
+
 test("fails closed on an unclaimed or expired proof nonce and on malformed certificate evidence",()=>{
   const unclaimed={...fixture.context,proofChallenge:{...fixture.context.proofChallenge,state:"ISSUED"}};
   assert.equal(verifyAndroidPeerAttestationEvidence({evidence:fixture.evidence,serverContext:unclaimed}).code,"SERVER_PROOF_CHALLENGE_NOT_CLAIMED_OR_EXPIRED");
