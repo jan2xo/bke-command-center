@@ -215,7 +215,9 @@ function getChain(evidence, context, at) {
   if (new Set(fingerprints).size!==fingerprints.length) throw Error("ATTESTATION_CHAIN_DUPLICATE_CERTIFICATE");
   for (let i=0;i<certs.length-1;i++) {
     const child=certs[i], issuer=certs[i+1];
-    if (child.ca||!issuer.ca||!child.checkIssued(issuer)||!child.verify(issuer.publicKey)) throw Error("ATTESTATION_CHAIN_SIGNATURE_INVALID");
+    // The leaf must not be a CA; intermediates below the root must be CAs.
+    if ((i===0&&child.ca)||(i>0&&!child.ca)||!issuer.ca||
+        !child.checkIssued(issuer)||!child.verify(issuer.publicKey)) throw Error("ATTESTATION_CHAIN_SIGNATURE_INVALID");
     if (Array.isArray(issuer.keyUsage)&&issuer.keyUsage.length&&!issuer.keyUsage.some(u=>/keyCertSign|Certificate Sign/iu.test(u))) throw Error("ATTESTATION_ISSUER_KEY_USAGE");
   }
   const root=certs[certs.length-1], rootFp=fingerprints[fingerprints.length-1];
@@ -284,6 +286,12 @@ export function verifyAndroidPeerAttestationEvidence({evidence,serverContext,clo
     }
     if (!verifySignature("sha256",canonicalPayload(evidence,challenge),leaf.publicKey,signature)) {
       return blocked("ANDROID_EVIDENCE_SIGNATURE_INVALID");
+    }
+    const finalAt=now(clock);
+    if (finalAt===null||serverContext.proofChallenge.expiresAtMs<=finalAt||
+        !validRevocations(serverContext.revocationSnapshot,finalAt)||
+        chain.certs.some(cert=>Date.parse(cert.validFrom)>finalAt||Date.parse(cert.validTo)<finalAt)) {
+      return blocked("ANDROID_VALIDATION_WINDOW_EXPIRED");
     }
     return Object.freeze({
       state:"ANDROID_PEER_EVIDENCE_VERIFIED",
