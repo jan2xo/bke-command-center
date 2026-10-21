@@ -14,7 +14,7 @@ const KEY_B64 = /^[A-Za-z0-9_-]{43}$/u;
 const block = code => Object.freeze({ state: "BLOCKED", code, authority: "NONE" });
 const exact = (value, keys) => value !== null && typeof value === "object" &&
   !Array.isArray(value) &&
-  Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+  Object.keys(value).sort().join(",") === keys.split(",").sort().join(",");
 const enc = value => new TextEncoder().encode(value);
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 
@@ -121,6 +121,19 @@ function matchesInstallationObject(env, objectId, installationId) {
   }
 }
 
+function validStoredRow(row) {
+  return exact(row, "audience,challenge_id,challenge_sha256,consumed_at_ms,consume_operation_id,expires_at_ms,installation_id,issue_operation_id,issued_at_ms,purpose,worker_id") &&
+    HEX32.test(row.challenge_id) && HEX64.test(row.challenge_sha256) &&
+    INSTALLATION.test(row.installation_id) && WORKER.test(row.worker_id) &&
+    row.audience === AUDIENCE && row.purpose === PURPOSE &&
+    Number.isSafeInteger(row.issued_at_ms) && row.issued_at_ms > 0 &&
+    Number.isSafeInteger(row.expires_at_ms) && row.expires_at_ms > row.issued_at_ms &&
+    HEX64.test(row.issue_operation_id) &&
+    (row.consumed_at_ms === null || Number.isSafeInteger(row.consumed_at_ms)) &&
+    (row.consume_operation_id === null || HEX64.test(row.consume_operation_id)) &&
+    ((row.consumed_at_ms === null) === (row.consume_operation_id === null));
+}
+
 async function sha256Hex(value, cryptoImpl) {
   return hex(new Uint8Array(await cryptoImpl.subtle.digest("SHA-256", enc(value))));
 }
@@ -157,9 +170,10 @@ async function issue({ request, env, objectId, store, cryptoImpl, clock }) {
   try {
     return await store.atomic(async tx => {
       const current = (await tx.get("attestation_challenges")) || [];
-      if (!Array.isArray(current)) throw new Error("STORAGE_SHAPE_INVALID");
-      const live = current.filter(row => row && Number.isSafeInteger(row.expires_at_ms) &&
-        row.expires_at_ms > now);
+      if (!Array.isArray(current) || current.some(row => !validStoredRow(row))) {
+        throw new Error("STORAGE_SHAPE_INVALID");
+      }
+      const live = current.filter(row => row.expires_at_ms > now);
       if (live.length !== current.length) await tx.put("attestation_challenges", live);
       if (live.some(row => row.issue_operation_id === request.operation_id)) {
         return block("ATTESTATION_CHALLENGE_ISSUE_REPLAY");
@@ -228,8 +242,10 @@ async function consume({ request, env, objectId, store, cryptoImpl, clock }) {
   try {
     return await store.atomic(async tx => {
       const rows = (await tx.get("attestation_challenges")) || [];
-      if (!Array.isArray(rows)) throw new Error("STORAGE_SHAPE_INVALID");
-      const row = rows.find(candidate => candidate?.challenge_id === request.challenge_id);
+      if (!Array.isArray(rows) || rows.some(candidate => !validStoredRow(candidate))) {
+        throw new Error("STORAGE_SHAPE_INVALID");
+      }
+      const row = rows.find(candidate => candidate.challenge_id === request.challenge_id);
       if (!row) return block("ATTESTATION_CHALLENGE_UNKNOWN");
       if (row.installation_id !== request.installation_id ||
           row.worker_id !== request.worker_id ||
