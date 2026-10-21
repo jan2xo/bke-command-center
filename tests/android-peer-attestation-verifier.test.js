@@ -35,7 +35,7 @@ function rootOfTrust({locked=true,bootState=0}={}) {
   const tag704=highTag([0xbf,0x85,0x40],body);
   return tag704;
 }
-function keyDescription(initialChallenge, signerDigest, {securityLevel=2,locked=true,bootState=0,rootPlacement="hardware",rootCopies=1,applicationIdPlacement="software",omitRoot=false}={}) {
+function keyDescription(initialChallenge, signerDigest, {securityLevel=2,attestationVersion=4,locked=true,bootState=0,rootPlacement="hardware",rootCopies=1,applicationIdPlacement="software",omitRoot=false}={}) {
   const pkgInfo=seq(octet(Buffer.from(PACKAGE,"utf8")),integer(1));
   const appId=seq(set(pkgInfo),set(octet(signerDigest)));
   // AuthorizationList attestationApplicationId [709] EXPLICIT OCTET_STRING.
@@ -45,7 +45,7 @@ function keyDescription(initialChallenge, signerDigest, {securityLevel=2,locked=
   if(applicationIdPlacement==="software") software.push(appIdTag); else hardware.push(appIdTag);
   if(!omitRoot && rootPlacement==="software") software.push(rootTag);
   if(!omitRoot && rootPlacement==="hardware") for(let i=0;i<rootCopies;i++) hardware.push(rootTag);
-  return seq(integer(4),enumerated(securityLevel),integer(4),enumerated(securityLevel),
+  return seq(integer(attestationVersion),enumerated(securityLevel),integer(4),enumerated(securityLevel),
     octet(initialChallenge),octet(Buffer.alloc(0)),seq(...software),seq(...hardware));
 }
 
