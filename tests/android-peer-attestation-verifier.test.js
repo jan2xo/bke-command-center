@@ -56,11 +56,11 @@ function makeCertFixture({securityLevel=2}={}) {
   run(["req","-new","-key",intermediateKey,"-subj","/CN=BKE Test Attestation Intermediate","-out",intermediateCsr]);
   const intermediateConfig=join(directory,"intermediate.cnf");
   writeFileSync(intermediateConfig,
-    "[intermediate]\\n"+
-    "basicConstraints=critical,CA:TRUE,pathlen:0\\n"+
-    "keyUsage=critical,keyCertSign,cRLSign\\n"+
-    "subjectKeyIdentifier=hash\\n"+
-    "authorityKeyIdentifier=keyid,issuer\\n");
+    "[intermediate]\n"+
+    "basicConstraints=critical,CA:TRUE,pathlen:0\n"+
+    "keyUsage=critical,keyCertSign,cRLSign\n"+
+    "subjectKeyIdentifier=hash\n"+
+    "authorityKeyIdentifier=keyid,issuer\n");
   run(["x509","-req","-in",intermediateCsr,"-CA",rootPem,"-CAkey",rootKey,"-set_serial","10",
     "-days","3650","-sha256","-extfile",intermediateConfig,"-extensions","intermediate","-out",intermediatePem]);
   run(["ecparam","-name","prime256v1","-genkey","-noout","-out",leafKey]);
