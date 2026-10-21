@@ -291,3 +291,48 @@ test("corrupt duplicate ledger rows and out-of-range consumed timestamps fail cl
   const invalidConsume = await api.run(await consumeRequest(issued, { operation_id: "f".repeat(64) }));
   assert.equal(invalidConsume.code, "ATTESTATION_CHALLENGE_CONSUME_OUTCOME_UNCERTAIN");
 });
+
+
+test("server clock rollback cannot consume a challenge before its issue timestamp", async () => {
+  const api = setup();
+  const { result: issued } = await issue(api);
+  const rollbackNow = NOW - 1;
+  const req = await consumeRequest(issued, {
+    operation_id: "a".repeat(64),
+    issued_at_ms: rollbackNow,
+    expires_at_ms: rollbackNow + 20_000,
+  });
+  const result = await api.run(req, () => rollbackNow);
+  assert.equal(result.code, "ATTESTATION_CHALLENGE_CLOCK_BEFORE_ISSUE");
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
+});
+
+test("operation IDs cannot be reused across issue and consume actions", async () => {
+  const api = setup();
+  const issueOperation = "b".repeat(64);
+  const { result: issued } = await issue(api, { operation_id: issueOperation });
+
+  // Same operation identifier is not valid for consuming the issued challenge.
+  const reusedForConsume = await consumeRequest(issued, {
+    operation_id: issueOperation,
+  });
+  assert.equal((await api.run(reusedForConsume)).code,
+    "ATTESTATION_CHALLENGE_CONSUME_OPERATION_REPLAY");
+  assert.equal(api.storage.data.get(STORAGE_KEY)[0].consumed_at_ms, null);
+
+  const validConsumeOp = "c".repeat(64);
+  const validConsume = await api.run(await consumeRequest(issued, {
+    operation_id: validConsumeOp,
+  }));
+  assert.equal(validConsume.state, "CHALLENGE_CONSUMED");
+
+  // Nor may that consume operation be reused to issue a different challenge.
+  const reusedForIssue = await signed("issue", {
+    operation_id: validConsumeOp,
+    issued_at_ms: NOW + 1,
+    expires_at_ms: NOW + 20_000,
+  });
+  assert.equal((await api.run(reusedForIssue, () => NOW + 1)).code,
+    "ATTESTATION_CHALLENGE_ISSUE_REPLAY");
+  assert.equal(api.storage.data.get(STORAGE_KEY).length, 1);
+});
