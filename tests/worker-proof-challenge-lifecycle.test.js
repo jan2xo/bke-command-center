@@ -185,3 +185,29 @@ test("enabled vault with missing resolver and wrong Durable Object identity retu
  assert.deepEqual(await wrongObject.finalizeProofChallenge({challengeId:"a",serverReference:trusted,outcome:"CONSUMED"}),
   {state:"BLOCKED",code:"PROOF_CHALLENGE_OBJECT_MISMATCH"});
 });
+
+
+test("queued transaction crossing expiry cannot claim or finalize",async()=>{
+ const d=new FakeDurableStorage();
+ let now=2_000_000_000_000;
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const api=createAndroidProofChallengeLifecycle({
+  store:createPairingAtomicStore(d),installationId:"123456",
+  resolveTrustedContext:async reference=>reference?.trusted?binding():null,
+  cryptoImpl:webcrypto,clock:()=>now
+ });
+ const issued=await api.issue({serverReference:trusted});
+ assert.equal((await api.claim({challengeId:issued.challengeId,serverReference:trusted})).state,"CLAIMED");
+ let entered;
+ const inQueue=new Promise(resolve=>{entered=resolve;});
+ const blocker=d.transaction(async tx=>{entered();await gate;return tx.get("unused");});
+ await inQueue;
+ const pending=api.finalize({challengeId:issued.challengeId,serverReference:trusted,outcome:"CONSUMED"});
+ await new Promise(resolve=>setImmediate(resolve));
+ now=issued.expiresAtMs;
+ release();
+ await blocker;
+ assert.deepEqual(await pending,{state:"BLOCKED",code:"PROOF_CHALLENGE_EXPIRED"});
+ assert.equal(d.data.get("bke:proof-challenge:v1:rows")[0].state,"REJECTED");
+});
