@@ -200,7 +200,7 @@ export function createAndroidProofChallengeLifecycle({
         const kept=retain(rows,now);
         if (kept.length>=MAX_ROWS) return block("PROOF_CHALLENGE_CAPACITY");
         await tx.put("proof_challenges",[...kept,row]);
-        return Object.freeze({state:"ISSUED",challengeId:id,expiresAtMs:row.expires_at_ms,
+        return Object.freeze({state:"ISSUED",challengeId:id,issuedAtMs:row.issued_at_ms,expiresAtMs:row.expires_at_ms,
           purpose:PROOF_PURPOSE,audience:PROOF_AUDIENCE});
       });
     },
