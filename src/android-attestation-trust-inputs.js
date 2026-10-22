@@ -174,7 +174,7 @@ function parseStatusEntries(payload) {
   for (const [serial, detail] of sourceEntries) {
     if (!SERIAL_KEY.test(serial) || serial.length > 64 || !isRecord(detail) ||
         !Object.hasOwn(detail, "status") || !STATUSES.has(detail.status) ||
-        Object.keys(detail).some((key) => !["status", "expires", "reason"].includes(key))) {
+        Object.keys(detail).some((key) => !["status", "expires", "reason", "comment"].includes(key))) {
       throw errorWithCode("STATUS_SCHEMA_INVALID");
     }
     if (Object.hasOwn(detail, "expires") && !validCalendarDate(detail.expires)) {
@@ -183,11 +183,154 @@ function parseStatusEntries(payload) {
     if (Object.hasOwn(detail, "reason") && !REASONS.has(detail.reason)) {
       throw errorWithCode("STATUS_SCHEMA_INVALID");
     }
+    // Google's published schema permits comment as an optional free-text annotation.
+    // Validate it, but never copy it into the cached trust input or revocation result.
+    if (Object.hasOwn(detail, "comment") &&
+        (typeof detail.comment !== "string" || detail.comment.length > 140)) {
+      throw errorWithCode("STATUS_SCHEMA_INVALID");
+    }
     const normalized = { status: detail.status };
     if (Object.hasOwn(detail, "expires")) normalized.expires = detail.expires;
     entries[serial] = Object.freeze(normalized);
   }
   return Object.freeze(entries);
+}
+
+function parseJsonRejectingDuplicateKeys(text) {
+  let index = 0;
+
+  function fail() {
+    throw errorWithCode("STATUS_JSON_INVALID");
+  }
+  function whitespace() {
+    while (index < text.length && (text[index] === " " || text[index] === "\\n" ||
+      text[index] === "\\r" || text[index] === "\\t")) index++;
+  }
+  function parseString() {
+    if (text[index] !== '"') fail();
+    const start = index++;
+    while (index < text.length) {
+      const character = text[index++];
+      if (character === '"') {
+        const token = text.slice(start, index);
+        try {
+          const value = JSON.parse(token);
+          if (typeof value !== "string") fail();
+          return value;
+        } catch {
+          fail();
+        }
+      }
+      if (character === "\\") {
+        if (index >= text.length) fail();
+        index++;
+      } else if (character.charCodeAt(0) < 0x20) {
+        fail();
+      }
+    }
+    fail();
+  }
+  function parseNumber() {
+    const start = index;
+    if (text[index] === "-") index++;
+    if (text[index] === "0") {
+      index++;
+      if (/[0-9]/u.test(text[index] ?? "")) fail();
+    } else {
+      if (!/[1-9]/u.test(text[index] ?? "")) fail();
+      while (/[0-9]/u.test(text[index] ?? "")) index++;
+    }
+    if (text[index] === ".") {
+      index++;
+      if (!/[0-9]/u.test(text[index] ?? "")) fail();
+      while (/[0-9]/u.test(text[index] ?? "")) index++;
+    }
+    if (text[index] === "e" || text[index] === "E") {
+      index++;
+      if (text[index] === "+" || text[index] === "-") index++;
+      if (!/[0-9]/u.test(text[index] ?? "")) fail();
+      while (/[0-9]/u.test(text[index] ?? "")) index++;
+    }
+    const parsed = Number(text.slice(start, index));
+    if (!Number.isFinite(parsed)) fail();
+    return parsed;
+  }
+  function parseLiteral(token, value) {
+    if (text.slice(index, index + token.length) !== token) fail();
+    index += token.length;
+    return value;
+  }
+  function parseArray() {
+    index++; // [
+    whitespace();
+    const values = [];
+    if (text[index] === "]") {
+      index++;
+      return values;
+    }
+    while (true) {
+      whitespace();
+      values.push(parseValue());
+      whitespace();
+      if (text[index] === "]") {
+        index++;
+        return values;
+      }
+      if (text[index] !== ",") fail();
+      index++;
+      whitespace();
+      if (text[index] === "]") fail();
+    }
+  }
+  function parseObject() {
+    index++; // {
+    whitespace();
+    const object = Object.create(null);
+    const keys = new Set();
+    if (text[index] === "}") {
+      index++;
+      return object;
+    }
+    while (true) {
+      whitespace();
+      const key = parseString();
+      if (keys.has(key)) fail();
+      keys.add(key);
+      whitespace();
+      if (text[index] !== ":") fail();
+      index++;
+      whitespace();
+      object[key] = parseValue();
+      whitespace();
+      if (text[index] === "}") {
+        index++;
+        return object;
+      }
+      if (text[index] !== ",") fail();
+      index++;
+      whitespace();
+      if (text[index] === "}") fail();
+    }
+  }
+  function parseValue() {
+    whitespace();
+    switch (text[index]) {
+      case '"': return parseString();
+      case "{": return parseObject();
+      case "[": return parseArray();
+      case "t": return parseLiteral("true", true);
+      case "f": return parseLiteral("false", false);
+      case "n": return parseLiteral("null", null);
+      default:
+        if (text[index] === "-" || /[0-9]/u.test(text[index] ?? "")) return parseNumber();
+        return fail();
+    }
+  }
+
+  const value = parseValue();
+  whitespace();
+  if (index !== text.length) fail();
+  return value;
 }
 
 async function readBoundedJson(response) {
@@ -227,8 +370,7 @@ async function readBoundedJson(response) {
   let decoded;
   try { decoded = new TextDecoder("utf-8", { fatal: true }).decode(body); }
   catch { throw errorWithCode("STATUS_JSON_INVALID"); }
-  try { return JSON.parse(decoded); }
-  catch { throw errorWithCode("STATUS_JSON_INVALID"); }
+  return parseJsonRejectingDuplicateKeys(decoded);
 }
 
 function cloneSnapshot(snapshot) {
