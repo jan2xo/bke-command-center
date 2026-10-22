@@ -176,7 +176,7 @@ test("ACTIVE execution lane must have verified GitHub principal and assigned exa
 
 test("a purported VERIFIED actor binding rejects missing, wrong-audience, expired, future and overlong witnesses", () => {
   assert.throws(() => validateActorBindingShape(unverifiedActor("VERIFIED", "actor"), { nowMs: NOW }),
-    { code: "FC_CONTRACT_ACTOR_BINDING_SCHEMA_INVALID" });
+    { code: "FC_CONTRACT_ACTOR_WITNESS_SCHEMA_INVALID" });
   const wrongAudience = verifiedActor("actor", "x", { audience: "other-purpose" });
   assert.throws(() => validateActorBindingShape(wrongAudience, { nowMs: NOW }),
     { code: "FC_CONTRACT_ACTOR_WITNESS_AUDIENCE_INVALID" });
