@@ -117,6 +117,25 @@ function reviewTarget(overrides = {}) {
   };
 }
 
+function admittedReviewerLane(lifecycleState = "ACTIVE", workerDevice = {
+  status: "VERIFIED",
+  worker_id: "reviewer-worker-c1",
+  registration_ref: "reviewer-device-registration",
+}) {
+  return lane({
+    lane_id: "C1",
+    lane_kind: "REVIEW",
+    lifecycle_state: lifecycleState,
+    actor_binding: verifiedActor("reviewer-actor-C1"),
+    worker_device: workerDevice,
+    github_write_principal: {
+      status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-reviewer",
+    },
+    provider_context: providerContext(),
+    active_target: reviewTarget(),
+  });
+}
+
 function review(overrides = {}) {
   return {
     version: FC_REVIEW_CONTRACT_VERSION,
@@ -258,6 +277,94 @@ test("ACTIVE C lane targets an admitted subject PR without claiming its implemen
   assert.notEqual(validated.worker_device.worker_id, validated.active_target.subject_implementing_worker_id);
   assert.equal(Object.hasOwn(validated.active_target, "worker_id"), false);
   assert.equal(Object.hasOwn(validated.active_target, "assignment_state"), false);
+});
+
+test("RESERVED and ACTIVE C reviewers accept VERIFIED devices distinct from the subject PR owner", () => {
+  for (const lifecycle of ["RESERVED", "ACTIVE"]) {
+    const result = validateLaneIdentityRecord(admittedReviewerLane(lifecycle), { nowMs: NOW });
+    assert.equal(result.worker_device.status, "VERIFIED");
+    assert.equal(result.worker_device.worker_id, "reviewer-worker-c1");
+    assert.equal(result.active_target.kind, "REVIEW");
+    assert.equal(result.active_target.review_admission_state, "ADMITTED");
+    assert.notEqual(result.worker_device.worker_id, result.active_target.subject_implementing_worker_id);
+    assert.equal(Object.hasOwn(result.active_target, "worker_id"), false);
+    assert.equal(Object.hasOwn(result.active_target, "assignment_state"), false);
+  }
+});
+
+test("RESERVED and ACTIVE desktop C reviewers permit only explicit identity-free NOT_APPLICABLE", () => {
+  for (const lifecycle of ["RESERVED", "ACTIVE"]) {
+    const result = validateLaneIdentityRecord(admittedReviewerLane(lifecycle, {
+      status: "NOT_APPLICABLE", worker_id: null, registration_ref: null,
+    }), { nowMs: NOW });
+    assert.equal(result.worker_device.status, "NOT_APPLICABLE");
+    assert.equal(result.worker_device.worker_id, null);
+    assert.equal(result.worker_device.registration_ref, null);
+    assert.equal(result.active_target.review_admission_state, "ADMITTED");
+  }
+});
+
+test("RESERVED and ACTIVE C reviewers reject every non-VERIFIED applicable device state", () => {
+  const unsafeDevices = [
+    { status: "REVOKED", worker_id: "reviewer-worker-c1", registration_ref: "revoked-registration" },
+    { status: "CLAIMED", worker_id: "reviewer-worker-c1", registration_ref: "claimed-registration" },
+    { status: "UNCERTAIN", worker_id: "reviewer-worker-c1", registration_ref: "uncertain-registration" },
+    { status: "UNKNOWN", worker_id: "reviewer-worker-c1", registration_ref: "unknown-registration" },
+    { status: "UNKNOWN", worker_id: null, registration_ref: null },
+    { status: "MISSING", worker_id: null, registration_ref: null },
+  ];
+  for (const lifecycle of ["RESERVED", "ACTIVE"]) {
+    for (const workerDevice of unsafeDevices) {
+      assert.throws(
+        () => validateLaneIdentityRecord(admittedReviewerLane(lifecycle, workerDevice), { nowMs: NOW }),
+        { code: "FC_CONTRACT_REVIEW_WORKER_DEVICE_NOT_VERIFIED" },
+        `${lifecycle} C1 must reject ${workerDevice.status} reviewer device`,
+      );
+    }
+  }
+});
+
+test("a desktop C reviewer cannot disguise registered device identities as NOT_APPLICABLE", () => {
+  for (const lifecycle of ["RESERVED", "ACTIVE"]) {
+    for (const workerDevice of [
+      { status: "NOT_APPLICABLE", worker_id: "reviewer-worker-c1", registration_ref: null },
+      { status: "NOT_APPLICABLE", worker_id: null, registration_ref: "unexpected-registration" },
+      { status: "NOT_APPLICABLE", worker_id: "reviewer-worker-c1", registration_ref: "unexpected-registration" },
+    ]) {
+      assert.throws(
+        () => validateLaneIdentityRecord(admittedReviewerLane(lifecycle, workerDevice), { nowMs: NOW }),
+        { code: "FC_CONTRACT_NOT_APPLICABLE_WORKER_DEVICE_HAS_IDENTITY" },
+      );
+    }
+  }
+});
+
+test("C reviewer device validity does not override subject ownership or admission evidence", () => {
+  for (const lifecycle of ["RESERVED", "ACTIVE"]) {
+    assert.throws(() => validateLaneIdentityRecord({
+      ...admittedReviewerLane(lifecycle),
+      active_target: { ...reviewTarget(), worker_id: "reviewer-worker-c1", assignment_state: "ASSIGNED" },
+    }, { nowMs: NOW }), { code: "FC_CONTRACT_ACTIVE_TARGET_SCHEMA_INVALID" });
+    assert.throws(() => validateLaneIdentityRecord({
+      ...admittedReviewerLane(lifecycle),
+      active_target: reviewTarget({
+        review_admission_state: "BLOCKED", review_admission_ref: null,
+      }),
+    }, { nowMs: NOW }), { code: "FC_CONTRACT_LANE_REVIEW_NOT_ADMITTED" });
+    assert.throws(() => validateLaneIdentityRecord({
+      ...admittedReviewerLane(lifecycle),
+      active_target: reviewTarget({
+        subject_assignment_state: "CONFLICT", subject_implementing_worker_id: null,
+        review_admission_state: "ADMITTED",
+      }),
+    }, { nowMs: NOW }), { code: "FC_CONTRACT_REVIEW_ADMISSION_EVIDENCE_INCOMPLETE" });
+  }
+  const stale = assessReviewEvidence(review(), { nowMs: NOW, currentHeadSha: HEAD_B });
+  assert.equal(stale.head_status, "SUPERSEDED");
+  assert.equal(stale.presentation_status, "SUPERSEDED");
+  assert.equal(stale.authority, "NONE");
+  assert.equal(stale.native_github_review_status, "NOT_CHECKED");
+  assert.equal(stale.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
 });
 
 test("C lane cannot smuggle a second implementing-worker claim into its review target", () => {

@@ -337,8 +337,15 @@ export function validateLaneIdentityRecord(value, { nowMs } = {}) {
       if (!activeTarget || activeTarget.assignment_state !== "ASSIGNED") {
         fail("LANE_TARGET_NOT_ASSIGNED");
       }
-    } else if (!activeTarget || activeTarget.review_admission_state !== "ADMITTED") {
-      fail("LANE_REVIEW_NOT_ADMITTED");
+    } else {
+      // A C reviewer never inherits the subject PR owner's worker-device
+      // registration. Applicable reviewer devices must be independently VERIFIED.
+      if (!["VERIFIED", "NOT_APPLICABLE"].includes(workerDevice.status)) {
+        fail("REVIEW_WORKER_DEVICE_NOT_VERIFIED");
+      }
+      if (!activeTarget || activeTarget.review_admission_state !== "ADMITTED") {
+        fail("LANE_REVIEW_NOT_ADMITTED");
+      }
     }
   }
   if (value.lifecycle_state === "ACTIVE" && githubPrincipal.status !== "VERIFIED") {
