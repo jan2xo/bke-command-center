@@ -33,6 +33,8 @@ const RESOURCE_STATES = new Set([
 const PROVIDERS = new Set(["CHATGPT", "OTHER", "NONE"]);
 const TARGET_KINDS = new Set(["IMPLEMENTATION", "REVIEW"]);
 const ASSIGNMENT_STATES = new Set(["ASSIGNED", "UNASSIGNED", "CONFLICT", "UNKNOWN"]);
+const SUBJECT_ASSIGNMENT_STATES = new Set(["ASSIGNED", "CONFLICT", "UNKNOWN"]);
+const REVIEW_ADMISSION_STATES = new Set(["PROPOSED", "ADMITTED", "BLOCKED", "UNKNOWN"]);
 const DECISIONS = new Set(["ACCEPT", "REMEDIATE", "BLOCKED"]);
 const EVIDENCE_KINDS = new Set(["TECHNICAL_CHECKPOINT", "GITHUB_NATIVE_REVIEW"]);
 const EVIDENCE_CATEGORIES = new Set([
@@ -211,37 +213,88 @@ function validateProviderContext(value) {
 
 function validateActiveTarget(value, laneKind) {
   if (value === null) return null;
-  exactObject(value, [
-    "assignment_state", "evidence_ref", "head_sha", "kind", "pr_number",
-    "repository", "worker_id",
-  ], "ACTIVE_TARGET_SCHEMA_INVALID");
-  if (!TARGET_KINDS.has(value.kind) || value.kind !== (laneKind === "EXECUTION" ? "IMPLEMENTATION" : "REVIEW")) {
-    fail("ACTIVE_TARGET_KIND_MISMATCH");
+
+  if (laneKind === "EXECUTION") {
+    exactObject(value, [
+      "assignment_state", "evidence_ref", "head_sha", "kind", "pr_number",
+      "repository", "worker_id",
+    ], "ACTIVE_TARGET_SCHEMA_INVALID");
+    if (value.kind !== "IMPLEMENTATION") fail("ACTIVE_TARGET_KIND_MISMATCH");
+    if (!ASSIGNMENT_STATES.has(value.assignment_state)) fail("ASSIGNMENT_STATE_INVALID");
+
+    const target = {
+      kind: "IMPLEMENTATION",
+      assignment_state: value.assignment_state,
+      repository: value.repository === null ? null : validRepository(value.repository),
+      pr_number: value.pr_number === null ? null : value.pr_number,
+      head_sha: value.head_sha === null ? null : validSha(value.head_sha),
+      worker_id: value.worker_id === null ? null : value.worker_id,
+      evidence_ref: nullableOpaque(value.evidence_ref, "ASSIGNMENT_EVIDENCE_REF_INVALID"),
+    };
+    if (target.pr_number !== null && (!Number.isSafeInteger(target.pr_number) || target.pr_number < 1)) {
+      fail("PR_NUMBER_INVALID");
+    }
+    if (target.worker_id !== null && (typeof target.worker_id !== "string" || !WORKER_ID.test(target.worker_id))) {
+      fail("ASSIGNED_WORKER_ID_INVALID");
+    }
+    if (target.assignment_state === "ASSIGNED" &&
+        (!target.repository || !target.pr_number || !target.head_sha || !target.worker_id || !target.evidence_ref)) {
+      fail("ASSIGNED_TARGET_INCOMPLETE");
+    }
+    if (target.assignment_state !== "ASSIGNED" &&
+        [target.repository, target.pr_number, target.head_sha, target.worker_id].some((item) => item !== null)) {
+      fail("NONASSIGNED_TARGET_HAS_SINGLE_OWNER");
+    }
+    return target;
   }
-  if (!ASSIGNMENT_STATES.has(value.assignment_state)) fail("ASSIGNMENT_STATE_INVALID");
+
+  // A C lane targets a subject PR for review; it does not claim that PR's
+  // implementation-worker assignment. Keep the subject owner and review admission
+  // provenance in separate fields so a reviewer can never masquerade as the PR owner.
+  exactObject(value, [
+    "head_sha", "implementing_assignment_evidence_ref", "review_admission_ref",
+    "review_admission_state", "kind", "pr_number", "repository",
+    "subject_assignment_state", "subject_implementing_worker_id",
+  ], "ACTIVE_TARGET_SCHEMA_INVALID");
+  if (value.kind !== "REVIEW") fail("ACTIVE_TARGET_KIND_MISMATCH");
+  if (!REVIEW_ADMISSION_STATES.has(value.review_admission_state)) {
+    fail("REVIEW_ADMISSION_STATE_INVALID");
+  }
+  if (!SUBJECT_ASSIGNMENT_STATES.has(value.subject_assignment_state)) {
+    fail("SUBJECT_ASSIGNMENT_STATE_INVALID");
+  }
 
   const target = {
-    kind: value.kind,
-    assignment_state: value.assignment_state,
-    repository: value.repository === null ? null : validRepository(value.repository),
-    pr_number: value.pr_number === null ? null : value.pr_number,
-    head_sha: value.head_sha === null ? null : validSha(value.head_sha),
-    worker_id: value.worker_id === null ? null : value.worker_id,
-    evidence_ref: nullableOpaque(value.evidence_ref, "ASSIGNMENT_EVIDENCE_REF_INVALID"),
+    kind: "REVIEW",
+    review_admission_state: value.review_admission_state,
+    repository: validRepository(value.repository),
+    pr_number: value.pr_number,
+    head_sha: validSha(value.head_sha),
+    subject_assignment_state: value.subject_assignment_state,
+    subject_implementing_worker_id: value.subject_implementing_worker_id,
+    implementing_assignment_evidence_ref: nullableOpaque(
+      value.implementing_assignment_evidence_ref, "IMPLEMENTING_ASSIGNMENT_EVIDENCE_REF_INVALID"),
+    review_admission_ref: nullableOpaque(value.review_admission_ref, "REVIEW_ADMISSION_REF_INVALID"),
   };
-  if (target.pr_number !== null && (!Number.isSafeInteger(target.pr_number) || target.pr_number < 1)) {
-    fail("PR_NUMBER_INVALID");
+  if (!Number.isSafeInteger(target.pr_number) || target.pr_number < 1) fail("PR_NUMBER_INVALID");
+  if (target.subject_implementing_worker_id !== null &&
+      (typeof target.subject_implementing_worker_id !== "string" ||
+       !WORKER_ID.test(target.subject_implementing_worker_id))) {
+    fail("SUBJECT_IMPLEMENTING_WORKER_ID_INVALID");
   }
-  if (target.worker_id !== null && (typeof target.worker_id !== "string" || !WORKER_ID.test(target.worker_id))) {
-    fail("ASSIGNED_WORKER_ID_INVALID");
+  if (target.subject_assignment_state === "ASSIGNED" &&
+      (!target.subject_implementing_worker_id || !target.implementing_assignment_evidence_ref)) {
+    fail("SUBJECT_ASSIGNMENT_EVIDENCE_INCOMPLETE");
   }
-  if (target.assignment_state === "ASSIGNED" &&
-      (!target.repository || !target.pr_number || !target.head_sha || !target.worker_id || !target.evidence_ref)) {
-    fail("ASSIGNED_TARGET_INCOMPLETE");
+  if (target.subject_assignment_state !== "ASSIGNED" && target.subject_implementing_worker_id !== null) {
+    fail("NONASSIGNED_SUBJECT_HAS_IMPLEMENTING_OWNER");
   }
-  if (target.assignment_state !== "ASSIGNED" &&
-      [target.repository, target.pr_number, target.head_sha, target.worker_id].some((item) => item !== null)) {
-    fail("NONASSIGNED_TARGET_HAS_SINGLE_OWNER");
+  if (target.review_admission_state === "ADMITTED" &&
+      (target.subject_assignment_state !== "ASSIGNED" || !target.review_admission_ref)) {
+    fail("REVIEW_ADMISSION_EVIDENCE_INCOMPLETE");
+  }
+  if (target.review_admission_state !== "ADMITTED" && target.review_admission_ref !== null) {
+    fail("NONADMITTED_REVIEW_HAS_ADMISSION_EVIDENCE");
   }
   return target;
 }
@@ -264,13 +317,29 @@ export function validateLaneIdentityRecord(value, { nowMs } = {}) {
   const providerContext = validateProviderContext(value.provider_context);
   const activeTarget = validateActiveTarget(value.active_target, value.lane_kind);
 
+  if (value.lane_kind === "EXECUTION" && activeTarget?.assignment_state === "ASSIGNED") {
+    if (workerDevice.status === "VERIFIED" &&
+        workerDevice.worker_id !== activeTarget.worker_id) {
+      fail("EXECUTION_WORKER_DEVICE_TARGET_MISMATCH");
+    }
+    if (["RESERVED", "ACTIVE"].includes(value.lifecycle_state) &&
+        !["VERIFIED", "NOT_APPLICABLE"].includes(workerDevice.status)) {
+      fail("EXECUTION_WORKER_DEVICE_NOT_VERIFIED");
+    }
+  }
+
   if (["AVAILABLE", "RESERVED", "ACTIVE"].includes(value.lifecycle_state)) {
     if (actorBinding.status !== "VERIFIED") fail("LANE_ACTOR_NOT_VERIFIED");
     if (providerContext.resource_status !== "VERIFIED") fail("LANE_RESOURCES_NOT_VERIFIED");
   }
-  if (["RESERVED", "ACTIVE"].includes(value.lifecycle_state) &&
-      (!activeTarget || activeTarget.assignment_state !== "ASSIGNED")) {
-    fail("LANE_TARGET_NOT_ASSIGNED");
+  if (["RESERVED", "ACTIVE"].includes(value.lifecycle_state)) {
+    if (value.lane_kind === "EXECUTION") {
+      if (!activeTarget || activeTarget.assignment_state !== "ASSIGNED") {
+        fail("LANE_TARGET_NOT_ASSIGNED");
+      }
+    } else if (!activeTarget || activeTarget.review_admission_state !== "ADMITTED") {
+      fail("LANE_REVIEW_NOT_ADMITTED");
+    }
   }
   if (value.lifecycle_state === "ACTIVE" && githubPrincipal.status !== "VERIFIED") {
     fail("ACTIVE_GITHUB_PRINCIPAL_NOT_VERIFIED");
@@ -374,9 +443,9 @@ export function assessReviewEvidence(value, { nowMs, currentHeadSha } = {}) {
     evidence_category: evidenceCategory,
     head_status: headStatus,
     presentation_status: presentationStatus,
-    independence_gate_status: evidenceCategory === "CROSS_WORKER_AUDIT" && headStatus === "CURRENT"
-      ? "SATISFIED_BY_CONTRACT_CLASSIFICATION"
-      : "NOT_SATISFIED",
+    // Contract-shaped IDs are not authenticated actor witnesses; this helper cannot
+    // evaluate admission or satisfy an independence-required gate.
+    independence_gate_status: "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER",
     native_github_review_status: "NOT_CHECKED",
     authority: "NONE",
   };
