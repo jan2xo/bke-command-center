@@ -203,8 +203,8 @@ function parseJsonRejectingDuplicateKeys(text) {
     throw errorWithCode("STATUS_JSON_INVALID");
   }
   function whitespace() {
-    while (index < text.length && (text[index] === " " || text[index] === "\\n" ||
-      text[index] === "\\r" || text[index] === "\\t")) index++;
+    while (index < text.length && (text[index] === " " || text[index] === "\n" ||
+      text[index] === "\r" || text[index] === "\t")) index++;
   }
   function parseString() {
     if (text[index] !== '"') fail();
