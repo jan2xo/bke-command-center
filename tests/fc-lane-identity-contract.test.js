@@ -89,7 +89,7 @@ function lane(overrides = {}) {
   };
 }
 
-function assignedTarget(kind = "IMPLEMENTATION") {
+function assignedTarget(kind = "IMPLEMENTATION", overrides = {}) {
   return {
     kind,
     assignment_state: "ASSIGNED",
@@ -98,6 +98,22 @@ function assignedTarget(kind = "IMPLEMENTATION") {
     head_sha: HEAD_A,
     worker_id: "android-worker-a",
     evidence_ref: "verified-github-assignment-snapshot-1",
+    ...overrides,
+  };
+}
+
+function reviewTarget(overrides = {}) {
+  return {
+    kind: "REVIEW",
+    review_admission_state: "ADMITTED",
+    repository: "jan2xo/bke-command-center",
+    pr_number: 73,
+    head_sha: HEAD_A,
+    subject_assignment_state: "ASSIGNED",
+    subject_implementing_worker_id: "android-worker-a",
+    implementing_assignment_evidence_ref: "github-assignment-snapshot-1",
+    review_admission_ref: "server-review-admission-ref-1",
+    ...overrides,
   };
 }
 
@@ -172,6 +188,114 @@ test("ACTIVE execution lane must have verified GitHub principal and assigned exa
     github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-read-1" },
     active_target: emptyTarget(),
   }, { nowMs: NOW }), { code: "FC_CONTRACT_LANE_TARGET_NOT_ASSIGNED" });
+});
+
+test("ACTIVE execution lane binds a verified device identity to the assigned implementation worker", () => {
+  const active = lane({
+    lifecycle_state: "ACTIVE",
+    actor_binding: verifiedActor("actor-F1"),
+    worker_device: {
+      status: "VERIFIED",
+      worker_id: "android-worker-a",
+      registration_ref: "device-registration-a",
+    },
+    github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-read-1" },
+    provider_context: providerContext(),
+    active_target: assignedTarget(),
+  });
+  const valid = validateLaneIdentityRecord(active, { nowMs: NOW });
+  assert.equal(valid.worker_device.worker_id, valid.active_target.worker_id);
+
+  assert.throws(() => validateLaneIdentityRecord({
+    ...active,
+    active_target: assignedTarget("IMPLEMENTATION", { worker_id: "android-worker-b" }),
+  }, { nowMs: NOW }), { code: "FC_CONTRACT_EXECUTION_WORKER_DEVICE_TARGET_MISMATCH" });
+});
+
+test("ACTIVE execution target fails closed for claimed or unknown device identity but keeps desktop N/A", () => {
+  const base = lane({
+    lifecycle_state: "ACTIVE",
+    actor_binding: verifiedActor("actor-F1"),
+    github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-read-1" },
+    provider_context: providerContext(),
+    active_target: assignedTarget(),
+  });
+  for (const workerDevice of [
+    { status: "CLAIMED", worker_id: "android-worker-a", registration_ref: "claimed-reg" },
+    { status: "UNKNOWN", worker_id: null, registration_ref: null },
+  ]) {
+    assert.throws(() => validateLaneIdentityRecord({ ...base, worker_device: workerDevice }, { nowMs: NOW }),
+      { code: "FC_CONTRACT_EXECUTION_WORKER_DEVICE_NOT_VERIFIED" });
+  }
+
+  const desktop = validateLaneIdentityRecord({
+    ...base,
+    worker_device: { status: "NOT_APPLICABLE", worker_id: null, registration_ref: null },
+  }, { nowMs: NOW });
+  assert.equal(desktop.worker_device.status, "NOT_APPLICABLE");
+});
+
+test("ACTIVE C lane targets an admitted subject PR without claiming its implementation assignment", () => {
+  const cLane = lane({
+    lane_id: "C1",
+    lane_kind: "REVIEW",
+    lifecycle_state: "ACTIVE",
+    actor_binding: verifiedActor("reviewer-actor-C1"),
+    worker_device: {
+      status: "VERIFIED",
+      worker_id: "reviewer-worker-c1",
+      registration_ref: "reviewer-device-registration",
+    },
+    github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-reviewer" },
+    provider_context: providerContext(),
+    active_target: reviewTarget(),
+  });
+  const validated = validateLaneIdentityRecord(cLane, { nowMs: NOW });
+  assert.equal(validated.lane_id, "C1");
+  assert.equal(validated.active_target.kind, "REVIEW");
+  assert.equal(validated.active_target.subject_implementing_worker_id, "android-worker-a");
+  assert.equal(validated.worker_device.worker_id, "reviewer-worker-c1");
+  assert.notEqual(validated.worker_device.worker_id, validated.active_target.subject_implementing_worker_id);
+  assert.equal(Object.hasOwn(validated.active_target, "worker_id"), false);
+  assert.equal(Object.hasOwn(validated.active_target, "assignment_state"), false);
+});
+
+test("C lane cannot smuggle a second implementing-worker claim into its review target", () => {
+  const cLane = lane({
+    lane_id: "C1",
+    lane_kind: "REVIEW",
+    lifecycle_state: "ACTIVE",
+    actor_binding: verifiedActor("reviewer-actor-C1"),
+    github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-reviewer" },
+    provider_context: providerContext(),
+    active_target: {
+      ...reviewTarget(),
+      worker_id: "reviewer-worker-c1",
+      assignment_state: "ASSIGNED",
+    },
+  });
+  assert.throws(() => validateLaneIdentityRecord(cLane, { nowMs: NOW }),
+    { code: "FC_CONTRACT_ACTIVE_TARGET_SCHEMA_INVALID" });
+});
+
+test("C lane cannot become ACTIVE from blocked or conflicting subject assignment evidence", () => {
+  const cLane = lane({
+    lane_id: "C1",
+    lane_kind: "REVIEW",
+    lifecycle_state: "ACTIVE",
+    actor_binding: verifiedActor("reviewer-actor-C1"),
+    github_write_principal: { status: "VERIFIED", login: "jan2xo", evidence_ref: "github-api-reviewer" },
+    provider_context: providerContext(),
+    active_target: reviewTarget({
+      review_admission_state: "BLOCKED",
+      subject_assignment_state: "CONFLICT",
+      subject_implementing_worker_id: null,
+      implementing_assignment_evidence_ref: "conflicting-assignment-snapshot",
+      review_admission_ref: null,
+    }),
+  });
+  assert.throws(() => validateLaneIdentityRecord(cLane, { nowMs: NOW }),
+    { code: "FC_CONTRACT_LANE_REVIEW_NOT_ADMITTED" });
 });
 
 test("a purported VERIFIED actor binding rejects missing, wrong-audience, expired, future and overlong witnesses", () => {
@@ -256,9 +380,46 @@ test("review evidence is classified as a candidate only on the current exact hea
   assert.equal(result.evidence_category, "CROSS_WORKER_AUDIT");
   assert.equal(result.head_status, "CURRENT");
   assert.equal(result.presentation_status, "CROSS_WORKER_REVIEW_CANDIDATE");
-  assert.equal(result.independence_gate_status, "SATISFIED_BY_CONTRACT_CLASSIFICATION");
+  assert.equal(result.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
   assert.equal(result.native_github_review_status, "NOT_CHECKED");
   assert.equal(result.authority, "NONE");
+});
+
+test("BLOCKED and REMEDIATE decisions never report an independence gate as satisfied", () => {
+  const blocked = assessReviewEvidence(review({ decision: "BLOCKED" }), {
+    nowMs: NOW, currentHeadSha: HEAD_A,
+  });
+  assert.equal(blocked.evidence_category, "CROSS_WORKER_AUDIT");
+  assert.equal(blocked.head_status, "CURRENT");
+  assert.equal(blocked.presentation_status, "BLOCKED");
+  assert.equal(blocked.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
+
+  const remediate = assessReviewEvidence(review({ decision: "REMEDIATE" }), {
+    nowMs: NOW, currentHeadSha: HEAD_A,
+  });
+  assert.equal(remediate.evidence_category, "CROSS_WORKER_AUDIT");
+  assert.equal(remediate.presentation_status, "REMEDIATION_FINDINGS");
+  assert.equal(remediate.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
+});
+
+test("ACCEPT classification stays advisory on matching, changed, and unknown heads", () => {
+  const current = assessReviewEvidence(review({ decision: "ACCEPT" }), {
+    nowMs: NOW, currentHeadSha: HEAD_A,
+  });
+  assert.equal(current.presentation_status, "CROSS_WORKER_REVIEW_CANDIDATE");
+  assert.equal(current.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
+
+  const changed = assessReviewEvidence(review({ decision: "ACCEPT" }), {
+    nowMs: NOW, currentHeadSha: HEAD_B,
+  });
+  assert.equal(changed.presentation_status, "SUPERSEDED");
+  assert.equal(changed.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
+
+  const unknown = assessReviewEvidence(review({ decision: "ACCEPT" }), {
+    nowMs: NOW, currentHeadSha: "unknown",
+  });
+  assert.equal(unknown.presentation_status, "BLOCKED");
+  assert.equal(unknown.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
 });
 
 test("self-audit ACCEPT remains findings-only and cannot satisfy independence", () => {
@@ -271,7 +432,7 @@ test("self-audit ACCEPT remains findings-only and cannot satisfy independence", 
   const result = assessReviewEvidence(value, { nowMs: NOW, currentHeadSha: HEAD_A });
   assert.equal(result.evidence_category, "SELF_AUDIT");
   assert.equal(result.presentation_status, "FINDINGS_ONLY");
-  assert.equal(result.independence_gate_status, "NOT_SATISFIED");
+  assert.equal(result.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
 });
 
 test("unverified reviewer evidence blocks despite an ACCEPT claim", () => {
@@ -280,7 +441,7 @@ test("unverified reviewer evidence blocks despite an ACCEPT claim", () => {
   }), { nowMs: NOW, currentHeadSha: HEAD_A });
   assert.equal(result.evidence_category, "INDEPENDENCE_UNVERIFIED");
   assert.equal(result.presentation_status, "BLOCKED");
-  assert.equal(result.independence_gate_status, "NOT_SATISFIED");
+  assert.equal(result.independence_gate_status, "NOT_EVALUATED_BY_SCHEMA_ONLY_HELPER");
 });
 
 test("a changed PR head supersedes the old review and unknown head blocks", () => {
