@@ -275,6 +275,66 @@ test("invalid snapshot and expired cache never imply a clear certificate", () =>
   assert.equal(evaluateGoogleAttestationRevocation(stale, "a1").code, "REVOCATION_STATUS_STALE_OR_INVALID");
 });
 
+
+test("official Google comment is accepted, validated, and excluded from revocation decisions", async () => {
+  const result = await loader({ fetchImpl: async () => response({ entries: {
+    "2c8cdddfd5e03bfc": {
+      status: "REVOKED",
+      reason: "KEY_COMPROMISE",
+      comment: "Key stored on unsecure system",
+    },
+    "3b9ad37f": {
+      status: "SUSPENDED",
+      expires: "2030-01-01",
+      comment: "Suspended pending review",
+    },
+  } }) }).load();
+  assert.equal(result.state, "REVOCATION_STATUS_AVAILABLE");
+  assert.equal(evaluateGoogleAttestationRevocation(result.revocationSnapshot, "2c8cdddfd5e03bfc").code,
+    "CERTIFICATE_REVOKED");
+  assert.equal(evaluateGoogleAttestationRevocation(result.revocationSnapshot, "3b9ad37f").code,
+    "CERTIFICATE_SUSPENDED");
+  assert.equal(Object.hasOwn(result.revocationSnapshot.entries["2c8cdddfd5e03bfc"], "comment"), false);
+});
+
+test("optional Google comment must be a string no longer than 140 characters", async () => {
+  for (const comment of [null, 42, {}, "x".repeat(141)]) {
+    const result = await loader({ fetchImpl: async () => response({ entries: {
+      a1: { status: "REVOKED", comment },
+    } }) }).load();
+    assert.equal(result.code, "STATUS_SCHEMA_INVALID", String(comment).slice(0, 20));
+  }
+  const atLimit = await loader({ fetchImpl: async () => response({ entries: {
+    a1: { status: "REVOKED", comment: "x".repeat(140) },
+  } }) }).load();
+  assert.equal(atLimit.state, "REVOCATION_STATUS_AVAILABLE");
+  assert.equal(evaluateGoogleAttestationRevocation(atLimit.revocationSnapshot, "a1").code, "CERTIFICATE_REVOKED");
+});
+
+test("raw JSON duplicate serial keys are rejected before object parsing can overwrite them", async () => {
+  const raw = '{"entries":{"a1":{"status":"REVOKED"},"a1":{"status":"SUSPENDED"}}}';
+  const result = await loader({ fetchImpl: async () => response({}, { rawBody: raw }) }).load();
+  assert.equal(result.code, "STATUS_JSON_INVALID");
+});
+
+test("raw JSON duplicate top-level entries keys are rejected", async () => {
+  const raw = '{"entries":{"a1":{"status":"REVOKED"}},"entries":{}}';
+  const result = await loader({ fetchImpl: async () => response({}, { rawBody: raw }) }).load();
+  assert.equal(result.code, "STATUS_JSON_INVALID");
+});
+
+test("raw JSON duplicate escaped object-member spellings are rejected by decoded key", async () => {
+  const raw = '{"entries":{"a1":{"status":"REVOKED","commen\\u0074":"one","comment":"two"}}}';
+  const result = await loader({ fetchImpl: async () => response({}, { rawBody: raw }) }).load();
+  assert.equal(result.code, "STATUS_JSON_INVALID");
+});
+
+test("raw duplicate nested object members are rejected, not just duplicate top-level keys", async () => {
+  const raw = '{"entries":{"a1":{"status":"REVOKED","reason":"KEY_COMPROMISE","reason":"SOFTWARE_FLAW"}}}';
+  const result = await loader({ fetchImpl: async () => response({}, { rawBody: raw }) }).load();
+  assert.equal(result.code, "STATUS_JSON_INVALID");
+});
+
 test("loader clones policy at construction to prevent later mutation", async () => {
   const candidate = makePolicy();
   const instance = loader({ policy: candidate });
