@@ -126,19 +126,30 @@ Before merge:
 
 Any head change makes old exact-head certification stale.
 
-## 7. Intentional CI
+## 7. Intentional CI — PR-owned plans, stable trust
 
-CI exists to prove the authorized intent, not to generate noise.
+CI exists to prove the **authorized engineering intent**, not to run every suite because a PR was opened, synchronized, or pushed.
 
-Prefer:
+The default BKE model is:
 
-- cheap automatic PR guards;
-- explicit substantial certification;
-- minimum complete graphs;
-- compact causal failure summaries;
-- exact-head proof.
+`PR #NNN = execution ledger + editable certification plan; CI modules = proof tools; required-certification = exact-head proof aggregator.`
 
-Avoid dumping enormous logs into conversational context.
+- **PR is the ledger, not a heavy-CI trigger.** Routine PR activity may run a cheap PR Guard where the repository has adopted one. Substantial tests, builds, containers, installers, security scans, and deployment verification run only when the declared intent requires them.
+- **Certification is branch-editable.** A PR may introduce or change its own tests, certification manifest, integration fixtures, or temporary workflow while still unmerged. The certification plan declares the minimum complete graph, exact head, primary proof owners, and excluded modules. A PR need not merge its tests into `main` before they can run.
+- **Default-branch entrypoints are routing infrastructure, not test authority.** A GitHub `issue_comment` workflow is registered from the default branch. It can verify an authorized `/certify ...` PR comment, read the declared plan from the **current PR SHA**, and test that exact candidate. Command syntax and manifest schema are repository-local; do not assume every repository implements `/certify pr core` identically.
+- **Names express ownership.** Label *temporary PR-specific* tests, jobs, and manifests with the PR number (e.g. `PR #297` or `pr-297.json`). Name reusable modules for the behavior they prove (Identity, Legal, Licensing, packaging, etc.). A durable shared workflow must not be renamed whenever a PR changes.
+- **Aggregate only declared proof.** `required-certification` must fail when a required module is missing, stale, or red, even if other jobs passed. A changed PR head invalidates previous proof. The plan must explain uncertain or security-sensitive ownership and intentionally excluded modules.
+- **Retire disposable CI.** Once a PR-owned workflow or test recipe is merged, superseded, or incorporated into a reusable owner, remove it from active GitHub Actions and preserve useful historical source in an inert legacy archive. First verify no active caller still needs it. Never archive required shared modules merely because one PR did not select them.
+- **Isolate privileges.** Branch-authored tests must not receive secrets, write tokens, privileged OIDC, or persisted checkout credentials. Protected Staging/Production, signing, release, and payment workflows use separate explicit authorization and environments. A reusable unprivileged workflow must not contain a nested job requesting higher token permissions, even if that job is usually skipped.
+- **Keep failure evidence compact.** Record first causal failure, exact run and source SHAs, and reproducible follow-up. Avoid pouring entire raw logs into conversational context.
+
+### Existing repositories and migration
+
+The above is the **new cross-project standard**, not a claim that all current repositories have already migrated. Inspect each repository's real workflow triggers, privileges, branch protection, and certification ownership. Make CI migrations in focused, certified PRs.
+
+For example, Command Center currently documents a repo-local NORMAL/NITRO experiment in `docs/ENGINEERING-MODES.md`; its NORMAL mode still runs automatic PR CI. That remains the live contract **until a separately certified Command Center CI migration**. Do not alter those active triggers merely by updating the shared standard.
+
+If a broken default-branch dispatcher blocks its own repair, a **minimal explicitly owner-authorized CI-only bootstrap** may be unavoidable. Record which exact-head proof was unavailable, leave privileged and production paths locked, and immediately run post-bootstrap certification. This is not a general exemption allowing unrelated uncertified merges.
 
 When CI fails, identify the earliest actionable causal failure and distinguish it from downstream aggregate failures.
 
@@ -244,5 +255,9 @@ The standard pattern is:
 `Context needed? Recover it from the repo, PRs, and issues before guessing.`
 
 `One intent -> one fresh PR -> minimum complete certification -> exact-head proof -> authorized merge.`
+
+`PR = ledger. PR-owned tests live on the candidate branch. Main hosts trusted dispatch, not every test definition.`
+
+`Required-certification = declared exact-head proof; retire temporary CI to inert legacy after its intent.`
 
 `New BKE repo? First task: get bke.md there.`
