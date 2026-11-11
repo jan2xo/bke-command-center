@@ -40,6 +40,11 @@ export class BkeWorkerPairingVault extends DurableObject {
     return this.#logic.managePreparedDeviceProposal(command);
   }
 
+  // Private named RPC for a single-use attestation nonce; never an HTTP route.
+  async manageDeviceAttestationChallenge(request) {
+    return this.#logic.manageDeviceAttestationChallenge(request);
+  }
+
   async fetch(request) {
     return this.#logic.fetch(request);
   }
