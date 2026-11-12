@@ -2,6 +2,10 @@
 
 A lightweight, read-first Cloudflare Worker for **PREPRODUCTION** observability. GitHub remains the engineering authority; Command Center derives state and does not create a second task database.
 
+## Verified cross-repo release checkpoint — 2026-11-12
+
+[Licensing 0.10.0: owner-authenticated GitHub ChatOps and immutable release](docs/licensing-chatops-immutable-release-2026-11-12.md) records the source-proven ChatGPT → GitHub exact-SHA dispatch path and [immutable published GitHub release](https://github.com/jan2xo/bke-libraries-typescript/releases/tag/licensing-v0.10.0). It distinguishes the reported collaborators-only comment restriction from the independently verified owner-only authorization and `immutable=true` release evidence. This is read-only historical documentation: **no Command Center publishing authority, runtime tile, or production changes**.
+
 ## Engineering modes (Command Center experiment only)
 
 This repository supports **NORMAL** (existing automatic PR/main CI) and **NITRO** (skip automatic PR/push CI on each Nitro commit and intentionally run a manual **pre-merge** exact-head gate). NITRO requires `nitro/*` PR branch, `bke-ci:nitro` PR label, explicit `**Engineering mode:** \`NITRO\`` ledger field, and `[skip ci]` in **every** Nitro commit message. These are operator-enforced GitHub conventions; a missing skip annotation can trigger unwanted automatic CI. At the ready-for-merge gate, the owner posts an exact `/nitro-certify <head-SHA>` PR comment to trigger the required tests; the old manual `workflow_dispatch` path remains a fallback. Never merge without certified exact-head proof. No PR Guard is added.
